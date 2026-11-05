@@ -13,8 +13,26 @@ Widget navySheetTheme(Widget child) {
       final isDark = Theme.of(context).brightness == Brightness.dark;
       return Theme(
         data: isDark ? AppTheme.dark : AppTheme.light,
-        child: child,
+        child: DismissKeyboardOnOutsideTap(child: child),
       );
     },
   );
+}
+
+/// Native mobile text fields keep focus on outside touches by default.
+class DismissKeyboardOnOutsideTap extends StatelessWidget {
+  const DismissKeyboardOnOutsideTap({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Actions(
+        actions: <Type, Action<Intent>>{
+          EditableTextTapUpOutsideIntent:
+              CallbackAction<EditableTextTapUpOutsideIntent>(
+            onInvoke: (intent) => intent.focusNode.unfocus(),
+          ),
+        },
+        child: child,
+      );
 }

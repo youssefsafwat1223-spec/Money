@@ -14,11 +14,52 @@ import '../common/app_header.dart';
 import '../common/app_card.dart';
 import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../data/catalog/catalog_daos.dart';
+import '../../data/db/sql_value_codec.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../common/widgets.dart';
 import '../settings/settings_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/formatters.dart';
+
+// Importing and reading are separate: a write to the local log refreshes the
+// list, but cannot trigger another import. This path does no telemetry upload.
+final _importShortcutHistoryProvider =
+    FutureProvider.autoDispose<void>((ref) async {
+  final service = ref.watch(notificationLogSyncServiceProvider);
+  try {
+    await service.importNativeHistory();
+  } catch (_) {
+    // The saved inbox remains usable if the owner changed or iOS is unavailable.
+  }
+});
+
+typedef ShortcutHistoryEntry = ({String id, String kind, DateTime sentAt});
+
+final shortcutHistoryProvider = FutureProvider.autoDispose<List<ShortcutHistoryEntry>>((ref) async {
+  ref.watch(scopedRevisionProvider('notification_log_events,replica_meta'));
+  final db = ref.watch(appDatabaseProvider);
+  final rows = await db.customSelect(r"""
+    SELECT notification_log_id, notification_type, MAX(occurred_at) AS sent_at
+    FROM notification_log_events
+    WHERE channel = 'ios_shortcut_local' AND event_type = 'sent'
+      AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json END,
+          '$._notification_origin.kind') = 'native'
+      AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json END,
+          '$._notification_origin.uid') =
+          (SELECT owner_uid FROM replica_meta WHERE id = 1)
+    GROUP BY notification_log_id, notification_type
+    ORDER BY sent_at DESC
+    LIMIT 80;
+  """).get();
+  return [
+    for (final row in rows)
+      (
+        id: 'shortcut:${row.read<String>('notification_log_id')}',
+        kind: row.read<String>('notification_type'),
+        sentAt: dateTimeFromSql(row.read<String>('sent_at')),
+      ),
+  ];
+});
 
 class AnnouncementsScreen extends ConsumerWidget {
   const AnnouncementsScreen({super.key});
@@ -28,6 +69,8 @@ class AnnouncementsScreen extends ConsumerWidget {
     final announcementsAsync = ref.watch(activeAnnouncementsProvider);
     final campaignsAsync = ref.watch(activeDashboardCampaignsProvider);
     final prefsAsync = ref.watch(notificationPreferencesProvider);
+    final shortcutHistory = ref.watch(shortcutHistoryProvider);
+    ref.watch(_importShortcutHistoryProvider);
 
     return AppScreenScaffold(
       header: AppHeader(title: context.l10n.annTitle),
@@ -41,7 +84,22 @@ class AnnouncementsScreen extends ConsumerWidget {
           onRetry: () => ref.invalidate(notificationPreferencesProvider),
         ),
         data: (prefs) {
-          final history = prefs.inboxState.history;
+          final inbox = prefs.inboxState;
+          final history = [
+            ...inbox.history,
+            for (final event in shortcutHistory.valueOrNull ?? const <ShortcutHistoryEntry>[])
+              NotificationHistoryEntry(
+                id: event.id,
+                kind: event.kind,
+                title: switch (event.kind) {
+                  'new_transaction' => context.l10n.annShortcutCaptured,
+                  'needs_review' => context.l10n.txnPendingReview,
+                  _ => context.l10n.annShortcutReceived,
+                },
+                body: '',
+                sentAt: event.sentAt,
+              ),
+          ].where((entry) => !inbox.hasDismissed(entry.id));
           final announcements = (announcementsAsync.valueOrNull ?? [])
               .where((item) => !item.isForceUpdate)
               .toList();
@@ -49,64 +107,82 @@ class AnnouncementsScreen extends ConsumerWidget {
           final items = <_MessageItem>[
             ...history.map((e) => _MessageItem.fromHistory(context, e)),
             ...campaigns.map((e) => _MessageItem.fromCampaign(context, e)),
-            ...announcements.map((e) => _MessageItem.fromAnnouncement(context, e)),
+            ...announcements
+                .map((e) => _MessageItem.fromAnnouncement(context, e)),
           ]..sort((a, b) => b.sortAt.compareTo(a.sortAt));
 
-          if (items.isEmpty) {
-            return AppEmptyState(
-              icon: AppLucideIcons.bell,
-              illustration: const QirshIllustration(
-                  name: 'notifications', width: 220, height: 165),
-              title: context.l10n.annEmpty,
-              subtitle:
-                  context.l10n.annEmptyBody,
-            );
+          if (items.isEmpty && shortcutHistory.isLoading) {
+            return AppLoadingState(label: context.l10n.annLoading);
           }
 
           return RefreshIndicator(
             onRefresh: () async {
+              ref.invalidate(_importShortcutHistoryProvider);
+              ref.invalidate(shortcutHistoryProvider);
               ref.invalidate(activeAnnouncementsProvider);
               ref.invalidate(activeDashboardCampaignsProvider);
               ref.invalidate(notificationPreferencesProvider);
             },
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, 120,
+                AppSpacing.gutter,
+                AppSpacing.s2,
+                AppSpacing.gutter,
+                120,
               ),
               children: [
-                AppCard(
-                  padding: EdgeInsets.zero,
-                  child: Column(children: [
-                    for (final item in items) ...[
-                      if (item != items.first)
-                        Divider(height: 1, indent: 16, endIndent: 16,
-                            color: context.colors.border),
-                      _MessageCard(item: item),
-                    ],
-                  ]),
-                ),
-                const SizedBox(height: 20),
-                AppCard(
-                  child: Row(children: [
-                    Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(context.l10n.setSettings,
-                            style: AppTypography.caption(context.colors.primary)),
-                        const SizedBox(height: 4),
-                        Text(context.l10n.annPreferencesTitle,
-                            style: AppTypography.bodyStrong(context.colors.textPrimary)),
-                        TextButton(
-                          onPressed: () => context.push('/settings'),
-                          style: TextButton.styleFrom(padding: EdgeInsets.zero,
-                              alignment: AlignmentDirectional.centerStart),
-                          child: Text(context.l10n.annPreferencesAction),
-                        ),
+                if (items.isEmpty)
+                  AppEmptyState(
+                    icon: AppLucideIcons.bell,
+                    illustration: const QirshIllustration(
+                        name: 'notifications', width: 220, height: 165),
+                    title: context.l10n.annEmpty,
+                    subtitle: context.l10n.annEmptyBody,
+                  )
+                else ...[
+                  AppCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(children: [
+                      for (final item in items) ...[
+                        if (item != items.first)
+                          Divider(
+                              height: 1,
+                              indent: 16,
+                              endIndent: 16,
+                              color: context.colors.border),
+                        _MessageCard(item: item),
                       ],
-                    )),
-                    const QirshIllustration(name: 'notifications', width: 100, height: 75),
-                  ]),
-                ),
+                    ]),
+                  ),
+                  const SizedBox(height: 20),
+                  AppCard(
+                    child: Row(children: [
+                      Expanded(
+                          child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(context.l10n.setSettings,
+                              style: AppTypography.caption(
+                                  context.colors.primary)),
+                          const SizedBox(height: 4),
+                          Text(context.l10n.annPreferencesTitle,
+                              style: AppTypography.bodyStrong(
+                                  context.colors.textPrimary)),
+                          TextButton(
+                            onPressed: () => context.push('/settings'),
+                            style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                alignment: AlignmentDirectional.centerStart),
+                            child: Text(context.l10n.annPreferencesAction),
+                          ),
+                        ],
+                      )),
+                      const QirshIllustration(
+                          name: 'notifications', width: 100, height: 75),
+                    ]),
+                  ),
+                ],
               ],
             ),
           );
@@ -133,25 +209,31 @@ class _MessageCard extends ConsumerWidget {
       collapsedIconColor: c.textMuted,
       maintainState: true,
       leading: Container(
-        width: 36, height: 36,
+        width: 36,
+        height: 36,
         decoration: BoxDecoration(
-          color: item.accent(c).withValues(alpha:
-              Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.12),
+          color: item.accent(c).withValues(
+              alpha: Theme.of(context).brightness == Brightness.dark
+                  ? 0.22
+                  : 0.12),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(item.icon, size: 18, color: item.accent(c)),
       ),
       title: Text(item.title,
-          style: AppTypography.custom(size: 14.5, weight: FontWeight.w600,
-              height: 1.4, color: c.textPrimary)),
+          style: AppTypography.custom(
+              size: 14.5,
+              weight: FontWeight.w600,
+              height: 1.4,
+              color: c.textPrimary)),
       subtitle: Text('${item.dateLabel(context)} · ${item.badge}',
           style: AppTypography.caption(c.textMuted)),
       children: [
         if (item.body.trim().isNotEmpty)
           Align(
             alignment: AlignmentDirectional.centerStart,
-            child: Text(item.body,
-                style: AppTypography.callout(c.textSecondary)),
+            child:
+                Text(item.body, style: AppTypography.callout(c.textSecondary)),
           ),
         if (item.actionLabel != null || item.dismissible) ...[
           const SizedBox(height: 8),
@@ -246,7 +328,8 @@ class _MessageItem {
     };
   }
 
-  static _MessageItem fromHistory(BuildContext context, NotificationHistoryEntry entry) {
+  static _MessageItem fromHistory(
+      BuildContext context, NotificationHistoryEntry entry) {
     return _MessageItem(
       id: entry.id,
       source: _MessageSource.history,

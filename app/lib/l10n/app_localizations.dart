@@ -4831,6 +4831,18 @@ abstract class AppL10n {
   /// **'أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.'**
   String get annEmptyBody;
 
+  /// No description provided for @annShortcutCaptured.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم التقاط عملية جديدة'**
+  String get annShortcutCaptured;
+
+  /// No description provided for @annShortcutReceived.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم استلام رسالة بنكية'**
+  String get annShortcutReceived;
+
   /// No description provided for @annNotificationSent.
   ///
   /// In ar, this message translates to:

@@ -217,6 +217,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, AppSpacing.s6),
       child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

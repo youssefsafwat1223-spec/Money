@@ -1318,6 +1318,8 @@
   "annRetry": "Try again",
   "annEmpty": "No messages yet",
   "annEmptyBody": "Any notification from Qirsh, or announcement from us, shows up here automatically.",
+  "annShortcutCaptured": "New transaction captured",
+  "annShortcutReceived": "Bank message received",
   "annNotificationSent": "Notification sent",
   "annOpen": "Open",
   "annInAppCampaign": "In-app campaign",

@@ -26,6 +26,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../../domain/usecases/user_settings_usecases.dart' show LoadUserSettingsUseCase;
 import '../../data/db/app_database.dart';
 import '../../data/db/creation_policy.dart';
 import '../../data/db/database_access_broker.dart';
@@ -57,7 +58,6 @@ import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../data/sync/seq_pull.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
-import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
 import '../../features/capture/services/native_capture_bridge.dart'
@@ -890,12 +890,14 @@ class BootstrapRunner {
 
     await _step('seed_catalog', () async {
       await const SeedLoader().seedIfEmpty(database);
-      _bindNotificationHistory(database);
-      LocalNotificationService.instance.logService = NotificationLogService(
-          database,
-          isCurrentScope: () =>
-              _host?.current?.uid == uid &&
-              identical(_host?.current?.database, database));
+      bool currentScope() => _host?.current?.uid == uid &&
+          identical(_host?.current?.database, database);
+      final settings = DriftUserSettingsRepository(database);
+      final notifications = LocalNotificationService.instance;
+      notifications.historyStore = (entry) =>
+          settings.appendNotificationHistory(entry, isCurrent: currentScope);
+      notifications.logService =
+          NotificationLogService(database, isCurrentScope: currentScope);
       await _registerBrandLogos();
     });
 
@@ -1702,24 +1704,6 @@ class BootstrapRunner {
       rethrow;
     }
   }
-}
-
-/// يربط الإشعارات المعروضة بسجل الرسائل داخل التطبيق حتى تظهر في
-/// شاشة الرسائل حتى لو فاتت المستخدم الـ banner.
-void _bindNotificationHistory(AppDatabase database) {
-  final settingsRepository = DriftUserSettingsRepository(database);
-  final loadPreferences =
-      LoadNotificationPreferencesUseCase(settingsRepository);
-  final savePreferences =
-      SaveNotificationPreferencesUseCase(settingsRepository);
-  LocalNotificationService.instance.historyStore = (entry) async {
-    final preferences = await loadPreferences();
-    await savePreferences(
-      preferences.copyWith(
-        inboxState: preferences.inboxState.addHistory(entry),
-      ),
-    );
-  };
 }
 
 /// Loads every bundled `assets/brands/*.svg` slug once so [BrandMark] can show

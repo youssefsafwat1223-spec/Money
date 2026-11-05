@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_colors.dart';
 import '../app_spacing.dart';
 import 'mali_glass.dart';
+import 'navy_sheet_theme.dart';
 
 /// [showModalBottomSheet] on the Liquid Glass sheet material.
 ///
@@ -69,7 +70,7 @@ class GlassSheetSurface extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.s3),
             ],
-            Flexible(child: child),
+            Flexible(child: DismissKeyboardOnOutsideTap(child: child)),
           ],
         ),
       ),

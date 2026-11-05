@@ -107,6 +107,20 @@ void main() {
               await tester
                   .runAsync(() => child.read(goalRepositoryProvider).getAll()),
               isEmpty);
+          final keyboardCase = key == 'budgetFormError';
+          if (keyboardCase) {
+            final field = find.byType(TextFormField).first;
+            await tester.tap(field);
+            tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+            await tester.pumpAndSettle();
+            final editable = tester.widget<EditableText>(find.byType(EditableText).first);
+            expect(editable.focusNode.hasFocus, isTrue);
+            await tester.tap(find.text(l10n.bdgEditBudget).last);
+            await tester.pumpAndSettle();
+            expect(editable.focusNode.hasFocus, isFalse);
+            await tester.tap(field);
+            await tester.pumpAndSettle();
+          }
           Finder save;
           if (allocation) {
             final income = find.byType(TextField).first;
@@ -133,6 +147,10 @@ void main() {
             await tester.ensureVisible(save);
           }
           await tester.pumpAndSettle();
+          if (keyboardCase) {
+            expect(tester.getBottomRight(save).dy, lessThanOrEqualTo(367));
+            expect(save.hitTestable(), findsOneWidget);
+          }
           await tester.tap(save);
           await tester.runAsync(() async =>
               Future<void>.delayed(const Duration(milliseconds: 120)));
@@ -184,7 +202,7 @@ void main() {
           expect(find.text('Open budget fixture'), findsOneWidget);
           expect(await tester.runAsync(() => snapshot(parentDb)), beforeParent);
           expect(tester.takeException(), isNull);
-        });
+        }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
       }
     }
   }

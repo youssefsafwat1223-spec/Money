@@ -488,6 +488,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, AppSpacing.s6),
       child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -2821,6 +2821,12 @@ class AppL10nEn extends AppL10n {
       'Any notification from Qirsh, or announcement from us, shows up here automatically.';
 
   @override
+  String get annShortcutCaptured => 'New transaction captured';
+
+  @override
+  String get annShortcutReceived => 'Bank message received';
+
+  @override
   String get annNotificationSent => 'Notification sent';
 
   @override

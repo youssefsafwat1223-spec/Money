@@ -418,6 +418,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       body: Form(
         key: _formKey,
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s3,

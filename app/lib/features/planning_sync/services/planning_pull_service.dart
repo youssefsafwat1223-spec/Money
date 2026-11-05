@@ -18,6 +18,7 @@ import '../../../data/repositories/drift_repository_support.dart';
 import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
+import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_transport.dart';
 import 'planning_outbox_queue.dart';
@@ -908,7 +909,7 @@ class PlanningPullService {
         await _markConflict('user_settings', id);
         return _PlanningPullOutcome.conflict;
       }
-      await _updateSettings(id, serverId, row);
+      await _updateSettings(id, serverId, row, local.read<String>('notifications_json'));
       await _applyServerRevision('user_settings', serverId, row);
       final rebound = await _db
           .customSelect(
@@ -925,13 +926,14 @@ class PlanningPullService {
       await _markConflict('user_settings', id);
       return _PlanningPullOutcome.conflict;
     }
-    await _updateSettings(id, serverId, row);
+    await _updateSettings(id, serverId, row, local.read<String>('notifications_json'));
     await _applyServerRevision('user_settings', serverId, row);
     return _PlanningPullOutcome.updated;
   }
 
   Future<void> _updateSettings(
-      String id, String serverId, Map<String, dynamic> row) async {
+      String id, String serverId, Map<String, dynamic> row,
+      String localNotifications) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     // نبقي القيمة المحلية إن كان الخادم لم يرسلها (أعمدة محلية NOT NULL).
     String keep(String col, Object? v) =>
@@ -946,7 +948,10 @@ class PlanningPullService {
           language = ${keep('language', row['language'])},
           country = ${keep('country', row['country'])},
           input_method = ${keep('input_method', row['input_method'])},
-          notifications_json = ${keep('notifications_json', row['notifications_json'])},
+          notifications_json = ${keep('notifications_json', row['notifications_json'] is String
+              ? NotificationInboxState.mergeHistoryJson(
+                  row['notifications_json'] as String, localNotifications)
+              : null)},
           privacy_mode_enabled = ${(row['privacy_mode_enabled'] == true) ? 1 : 0},
           -- MALI-059n: consent is device-local + explicit. A server pull must
           -- NEVER set/inherit cloud/AI consent (that would auto-authorize a new

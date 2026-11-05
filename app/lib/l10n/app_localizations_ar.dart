@@ -2837,6 +2837,12 @@ class AppL10nAr extends AppL10n {
       'أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.';
 
   @override
+  String get annShortcutCaptured => 'تم التقاط عملية جديدة';
+
+  @override
+  String get annShortcutReceived => 'تم استلام رسالة بنكية';
+
+  @override
   String get annNotificationSent => 'إشعار مرسل';
 
   @override

@@ -129,7 +129,6 @@ class NotificationLogSyncService {
       invocation.requireCurrent();
       if (origin == null || origin.uid != invocation.uid ||
           (expectedUid != null && expectedUid != invocation.uid)) { return NotificationUploadOutcome.deferred; }
-      if (!await _positive(invocation, origin)) return NotificationUploadOutcome.deferred;
       if (importNative) {
         try { await _importNativeEvents(original: invocation, capturedOrigin: origin); }
         on AccountFenceDeliveryCancellation { rethrow; }
@@ -138,9 +137,9 @@ class NotificationLogSyncService {
           if (kDebugMode) { debugPrint('[NotificationLogSync] native import failed: $error'); }
         }
         invocation.requireCurrent();
-        if (!await _positive(invocation, origin)) return NotificationUploadOutcome.deferred;
         if (!SupabaseConfig.isConfigured) return NotificationUploadOutcome.deferred;
       }
+      if (!await _positive(invocation, origin)) return NotificationUploadOutcome.deferred;
       return await _syncBatch(invocation, origin);
     } on AccountFenceDeliveryCancellation { rethrow; }
     on StaleAdmissionException {
@@ -170,8 +169,12 @@ class NotificationLogSyncService {
       _getCurrentAuthUserId() == invocation.uid &&
       _getClient().auth.currentUser?.id == invocation.uid;
 
+  /// Import on-device Shortcut receipts when the inbox opens, independently
+  /// of whether telemetry upload is allowed. The same owner checks apply.
+  Future<void> importNativeHistory() => _importNativeEvents();
+
   @visibleForTesting
-  Future<void> debugImportNativeEvents() => _importNativeEvents();
+  Future<void> debugImportNativeEvents() => importNativeHistory();
 
   Future<_NotificationInvocation> _captureNativeImportInvocation() async {
     final authority = AccountFenceAuthority.shared;

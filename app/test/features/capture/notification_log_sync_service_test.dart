@@ -15,6 +15,9 @@ import 'dart:async';
 import 'package:drift/native.dart';
 import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/features/announcements/announcements_screen.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -267,6 +270,49 @@ void main() {
     final row = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').getSingle();
     expect(row.readNullable<String>('synced_at'), isNull);
     expect(row.read<int>('sync_attempt_count'), 0);
+  });
+
+  nativeImportTest('local history imports only sent Shortcut receipts for this owner without cloud', () async {
+    NativeNotificationLogEvent event(int id, String type, String uid) =>
+        NativeNotificationLogEvent(
+          eventId: '00000000-0000-4000-8000-00000000000$id',
+          notificationLogId: 'attempt-$id',
+          eventType: type,
+          channel: 'ios_shortcut_local',
+          notificationType: 'new_transaction',
+          originKind: 'native',
+          ownerUid: uid,
+          ownerGeneration: 2,
+        );
+    final sync = NotificationLogSyncService(
+      db: db,
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B',
+          nativeGeneration: 2, isCurrent: () => true),
+      mayEgress: () async => false,
+      getClient: () => throw StateError('local history used the network'),
+      consumeNativeEvents: (_, __) async => [
+        event(1, 'sent', 'B'),
+        event(2, 'failed', 'B'),
+        event(3, 'sent', 'A'),
+      ],
+      acknowledgeNativeEvent: (_) async => true,
+    );
+    final container = ProviderContainer(overrides: [
+      appDatabaseProvider.overrideWithValue(db),
+    ]);
+    final subscription = container.listen(shortcutHistoryProvider, (_, __) {});
+    try {
+      expect(await container.read(shortcutHistoryProvider.future), isEmpty);
+      await sync.importNativeHistory();
+      await sync.importNativeHistory();
+      container.invalidate(shortcutHistoryProvider);
+      final history = await container.read(shortcutHistoryProvider.future);
+      expect(history.map((entry) => entry.id), ['shortcut:attempt-1']);
+      expect(history.single.kind, 'new_transaction');
+    } finally {
+      subscription.close();
+      container.dispose();
+    }
   });
 
   nativeImportTest('native retrieval retry persists once and only acknowledges verified origin', () async {

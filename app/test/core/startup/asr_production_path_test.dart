@@ -1016,7 +1016,8 @@ void main() {
   /// successor's enable at SE3). The shell's resume revalidation then sees the
   /// expired SDK session: the plain-expiry fence (§7.2) retires G' and mints
   /// expiry evidence, and the scope moves to local read.
-  Future<BootstrapRunner> recoveredThenWarmExpiry({int expiresIn = 125}) async {
+  Future<({BootstrapRunner runner, int nativeMark})> recoveredThenWarmExpiry(
+      {int expiresIn = 125}) async {
     await accountWithCloudOnThenKill();
     await commitExpiredRecord();
     final r = await bootProcess();
@@ -1035,6 +1036,9 @@ void main() {
         () => Supabase.instance.client.auth.currentSession?.isExpired ?? false,
         timeout: Duration(seconds: expiresIn),
         what: 'sdk expiry');
+    // Publishing local read can start ASR immediately, before this helper
+    // returns. Observe the native calls before the transition starts.
+    final nativeMark = sim.calls.length;
     await session.revalidateSupabaseSessionOnResume(Supabase.instance.client);
     await until(() => session.asrLocalReadOwner == _uid, what: 'local read');
     await session.nativeLifecycleSettled();
@@ -1048,17 +1052,15 @@ void main() {
     expect(r.accountScope.current!.isLocalRead, isTrue);
     expect(await CloudEgressGate.instance.permits(), isFalse);
     expect(await session.asrEligibilityDenial(_uid), isNull, reason: diag());
-    return r;
+    return (runner: r, nativeMark: nativeMark);
   }
 
   test('warm expiry: a recovered process expires again offline → its own '
       'fence evidence (E2-a) → ASR recovers through SE1–SE5 to G\'\'',
       () async {
-    final r = await recoveredThenWarmExpiry();
+    final (runner: r, nativeMark: mark) = await recoveredThenWarmExpiry();
     final replica = await replicaId(r);
     final prior = sim.generation;
-    final mark = sim.calls.length;
-    final mintsBefore = sim.of('mintExpiryEvidenceForLiveOn').length;
     script.result = () => _Script.ok(token: 'refresh-3');
     script.offline = false;
     observeEgressOrder();
@@ -1070,7 +1072,8 @@ void main() {
     await resume();
     expect(early, isEmpty,
         reason: 'no ordinary egress before the successor settled');
-    expect(sim.of('mintExpiryEvidenceForLiveOn').length, mintsBefore,
+    expect(sim.calls.skip(mark).where((call) =>
+        call.method == 'mintExpiryEvidenceForLiveOn'), isEmpty,
         reason: 'warm expiry: E2-a, the fence\'s own evidence');
     expectSuccessorChain(from: mark);
     await expectRecovered(r,

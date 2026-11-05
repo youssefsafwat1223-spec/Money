@@ -52,7 +52,10 @@ class BudgetFormScreen extends ConsumerStatefulWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => navySheetTheme(_BudgetFormSheet(budgetId: budgetId)),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: navySheetTheme(_BudgetFormSheet(budgetId: budgetId)),
+      ),
     );
   }
 
@@ -121,8 +124,10 @@ class _BudgetFormSheet extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                  child:
-                      _BudgetFormContent(budgetId: budgetId, fullScreen: false),
+                  child: SafeArea(
+                    top: false,
+                    child: _BudgetFormContent(budgetId: budgetId, fullScreen: false),
+                  ),
                 ),
               ],
             ),
@@ -203,6 +208,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
             return Form(
               key: _formKey,
               child: ListView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.gutter, vertical: 8),
                 children: [

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../core/theme/widgets/navy_sheet_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -47,7 +49,8 @@ class _SavingsConfirmSheet extends ConsumerStatefulWidget {
   final String? merchantId;
 
   @override
-  ConsumerState<_SavingsConfirmSheet> createState() => _SavingsConfirmSheetState();
+  ConsumerState<_SavingsConfirmSheet> createState() =>
+      _SavingsConfirmSheetState();
 }
 
 class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
@@ -64,8 +67,8 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
   void _recompute() {
     final currency = widget.offer.benefitCurrency;
     if (currency == null) {
-      setState(() => _preview =
-          const SavingsOutcome.abstained(SavingsAbstention.noStructuredBenefit));
+      setState(() => _preview = const SavingsOutcome.abstained(
+          SavingsAbstention.noStructuredBenefit));
       return;
     }
     Money? basket;
@@ -94,10 +97,10 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
     setState(() => _saving = true);
     try {
       await ref.read(savingsRepositoryProvider).record(
-          outcome,
-          couponId: widget.offer.id,
-          merchantId: widget.merchantId ?? widget.offer.merchantId,
-        );
+            outcome,
+            couponId: widget.offer.id,
+            merchantId: widget.merchantId ?? widget.offer.merchantId,
+          );
       ref.invalidate(savingsTotalsProvider);
       ref.invalidate(savingsHistoryProvider);
       if (mounted) Navigator.of(context).pop();
@@ -116,62 +119,70 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
     final canSave = !_saving && preview != null && preview.hasAmount;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.s5),
         decoration: BoxDecoration(
           color: c.surfaceCard,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(l10n.savingsConfirmTitle,
-                style: AppTypography.bodyStrong(c.textPrimary)),
-            const SizedBox(height: 4),
-            // States plainly that the calculation is local. A user being asked
-            // about a purchase deserves to know it is not being reported.
-            Text(l10n.savingsConfirmBody,
-                style: AppTypography.caption(c.textSecondary)),
-            const SizedBox(height: AppSpacing.s4),
-            TextField(
-              controller: _controller,
-              enabled: !_saving,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (_) => _recompute(),
-              decoration: InputDecoration(
-                labelText: l10n.savingsConfirmAmountLabel,
-                suffixText: widget.offer.benefitCurrency,
-                border: const OutlineInputBorder(),
-              ),
+        child: DismissKeyboardOnOutsideTap(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.savingsConfirmTitle,
+                    style: AppTypography.bodyStrong(c.textPrimary)),
+                const SizedBox(height: 4),
+                // States plainly that the calculation is local. A user being asked
+                // about a purchase deserves to know it is not being reported.
+                Text(l10n.savingsConfirmBody,
+                    style: AppTypography.caption(c.textSecondary)),
+                const SizedBox(height: AppSpacing.s4),
+                TextField(
+                  controller: _controller,
+                  enabled: !_saving,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (_) => _recompute(),
+                  decoration: InputDecoration(
+                    labelText: l10n.savingsConfirmAmountLabel,
+                    suffixText: widget.offer.benefitCurrency,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                if (preview != null && preview.hasAmount)
+                  Text(
+                    formatMoney(Money(preview.amountMinor!, preview.currency!)),
+                    style:
+                        AppTypography.calmTitle(c.cta).copyWith(fontSize: 24),
+                  )
+                else if (preview != null)
+                  // The honest outcome, stated rather than hidden behind a disabled
+                  // button with no explanation.
+                  Text(l10n.savingsCannotCompute,
+                      style: AppTypography.caption(c.textMuted)),
+                const SizedBox(height: AppSpacing.s4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: canSave ? _save : null,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(l10n.savingsConfirmAction),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.s3),
-            if (preview != null && preview.hasAmount)
-              Text(
-                formatMoney(Money(preview.amountMinor!, preview.currency!)),
-                style: AppTypography.calmTitle(c.cta).copyWith(fontSize: 24),
-              )
-            else if (preview != null)
-              // The honest outcome, stated rather than hidden behind a disabled
-              // button with no explanation.
-              Text(l10n.savingsCannotCompute,
-                  style: AppTypography.caption(c.textMuted)),
-            const SizedBox(height: AppSpacing.s4),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: canSave ? _save : null,
-                child: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l10n.savingsConfirmAction),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

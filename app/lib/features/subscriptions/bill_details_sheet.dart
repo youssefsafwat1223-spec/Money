@@ -349,6 +349,7 @@ class _BillDetailsSheetState extends ConsumerState<BillDetailsSheet> {
         builder: (context, setDialogState) => PopScope(
           canPop: !busy,
           child: GlassAlertDialog(
+            scrollableContent: true,
             title: Text(isInstallment ? context.l10n.bdsRecordInstalmentPayment : context.l10n.bdsRecordPayment),
             content: Column(
               mainAxisSize: MainAxisSize.min,

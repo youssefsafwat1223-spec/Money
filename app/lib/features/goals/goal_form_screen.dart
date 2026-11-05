@@ -176,6 +176,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     return Form(
       key: _formKey,
       child: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(
           AppSpacing.gutter,
           widget.fullScreen ? AppSpacing.gutter : AppSpacing.s2,

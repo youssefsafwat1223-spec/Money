@@ -1441,6 +1441,8 @@
   "annRetry": "إعادة المحاولة",
   "annEmpty": "لا توجد رسائل بعد",
   "annEmptyBody": "أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.",
+  "annShortcutCaptured": "تم التقاط عملية جديدة",
+  "annShortcutReceived": "تم استلام رسالة بنكية",
   "annNotificationSent": "إشعار مرسل",
   "annOpen": "فتح",
   "annInAppCampaign": "حملة داخل التطبيق",

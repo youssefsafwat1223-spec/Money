@@ -9,6 +9,8 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
+import 'package:money_companion/domain/entities/engagement_entities.dart';
+import 'package:money_companion/domain/usecases/user_settings_usecases.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
@@ -577,6 +579,32 @@ void main() {
         .customSelect('SELECT COUNT(*) AS c FROM user_settings;')
         .getSingle();
     expect(count.read<int>('c'), 1);
+  });
+
+  test('local deliveries survive overlapping appends, an older settings pull and a stale save', () async {
+    await bind();
+    final old = await settings.getSettings();
+    NotificationHistoryEntry entry(int id) => NotificationHistoryEntry(
+      id: 'notif_$id',
+      kind: 'test',
+      title: 'Message $id',
+      body: '',
+      sentAt: DateTime.utc(2026, 11, id),
+    );
+    await Future.wait([
+      settings.appendNotificationHistory(entry(1), isCurrent: () => true),
+      settings.appendNotificationHistory(entry(2), isCurrent: () => true),
+    ]);
+    remote.rows['user_settings'] = {
+      'user_settings': _remoteSettingsRow(theme: 'remote-light'),
+    };
+    await _pull(db, queue, remote).pull();
+    final load = LoadNotificationPreferencesUseCase(settings);
+    expect((await load()).inboxState.history.map((entry) => entry.id),
+        ['notif_2', 'notif_1']);
+    await settings.saveSettings(old.copyWith(theme: 'dark'));
+    expect((await load()).inboxState.history.map((entry) => entry.id),
+        ['notif_2', 'notif_1']);
   });
 
   test('local pending edit is not overwritten by pull (conflict guard)',

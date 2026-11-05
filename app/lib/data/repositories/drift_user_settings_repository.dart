@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
@@ -5,6 +7,7 @@ import '../../core/session/admission_authority.dart';
 import '../../core/privacy/cloud_egress_gate.dart';
 import '../../core/session/consent_capability.dart';
 import '../../core/session/merchant_preference_writer.dart';
+import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/repositories/user_settings_repository.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
@@ -67,6 +70,32 @@ class DriftUserSettingsRepository
   @override
   Future<UserSettingsEntity> saveSettings(UserSettingsEntity settings) =>
       _db.transaction(() => _saveWithinTransaction(settings));
+
+  /// A local notification may arrive concurrently with another delivery or
+  /// a settings change. Append inside the transaction and only write its field.
+  Future<void> appendNotificationHistory(NotificationHistoryEntry entry,
+      {required bool Function() isCurrent}) async {
+    if (!isCurrent() || !isDatabaseOpen) return;
+    await _db.transaction(() async {
+      if (!isCurrent()) return;
+      final settings = await getSettings();
+      if (!isCurrent()) return;
+      final json = settings.notificationsJson.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(settings.notificationsJson) as Map<String, dynamic>;
+      final inbox = NotificationInboxState.fromJson(
+          json['notificationInboxState'] as Map<String, dynamic>?);
+      json['notificationInboxState'] = inbox.addHistory(entry).toJson();
+      await _db.customUpdate(
+        'UPDATE user_settings SET notifications_json = ? WHERE id = ?;',
+        variables: [
+          Variable.withString(jsonEncode(json)),
+          Variable.withString(settings.id),
+        ],
+      );
+      if (!isCurrent()) throw const StaleAdmissionException();
+    });
+  }
 
   /// A field-scoped local preference write. No settings snapshot or outbox is
   /// involved, so a concurrent consent decision cannot be carried back here.
@@ -329,8 +358,11 @@ class DriftUserSettingsRepository
     {
       // Cloud/AI consent persists exactly as the user chose (MALI-001) — the
       // former forced-true clamp made the privacy toggles meaningless.
-      final requiredSettings = settings;
       final previousSettings = await getSettings();
+      final requiredSettings = settings.copyWith(
+        notificationsJson: NotificationInboxState.mergeHistoryJson(
+            settings.notificationsJson, previousSettings.notificationsJson),
+      );
       final marks = await _versionMarks();
       // The reads above are async boundaries: the lifecycle is revalidated here,
       // BEFORE the first mutation (a failure throws inside the transaction).

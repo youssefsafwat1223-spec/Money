@@ -1,5 +1,8 @@
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
+import 'package:flutter/material.dart' show TargetPlatform;
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
@@ -256,4 +259,34 @@ void main() {
       'sent',
     ]);
   });
+  testWidgets('iOS test notification is added to history after posting',
+      (tester) async {
+    const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final history = <NotificationHistoryEntry>[];
+    var posts = 0;
+    IOSFlutterLocalNotificationsPlugin.registerWith();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'show') {
+        expect(history, isEmpty, reason: 'only record after a successful post');
+        posts++;
+      }
+      return switch (call.method) {
+        'initialize' || 'requestPermissions' => true,
+        _ => null,
+      };
+    });
+    final service = LocalNotificationService.instance;
+    service.historyStore = (entry) async => history.add(entry);
+    try {
+      expect(await tester.runAsync(service.showTestNotification), isTrue);
+      expect(posts, 1);
+      expect(history.single.id, 'notif_99001');
+      expect(history.single.kind, 'test');
+    } finally {
+      service.historyStore = null;
+      messenger.setMockMethodCallHandler(channel, null);
+    }
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+
 }

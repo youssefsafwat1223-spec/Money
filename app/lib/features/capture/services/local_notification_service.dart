@@ -381,6 +381,7 @@ class LocalNotificationService {
     String title = 'أكّد عملية',
     required String body,
     required NotificationPreferences preferences,
+    Future<void> Function(NotificationHistoryEntry)? storeHistory,
   }) async {
     debugPrint(
         '[Notif] showReviewNotification captureReview=${preferences.captureReview}');
@@ -388,6 +389,7 @@ class LocalNotificationService {
       return;
     }
     await _show(
+      storeHistory: storeHistory,
       // MALI-061n §3 — stable logical identity from the transaction id (a
       // business key), not its unstable hashCode.
       id: notificationEventId('review', transactionId),
@@ -441,6 +443,7 @@ class LocalNotificationService {
     required String title,
     required String body,
     required NotificationPreferences preferences,
+    Future<void> Function(NotificationHistoryEntry)? storeHistory,
     required String stableId,
 
     /// CAP-7: [title]/[body] are already generic (summary, correction); they
@@ -457,6 +460,7 @@ class LocalNotificationService {
       return;
     }
     await _show(
+      storeHistory: storeHistory,
       // MALI-061n §3 — stable logical identity from the capture business key
       // (transaction id or immutable-content fingerprint), NEVER the display
       // text. The same capture notified twice replaces rather than duplicates.
@@ -503,15 +507,21 @@ class LocalNotificationService {
   /// exception, which is exactly the failure mode this pipeline exists to
   /// remove.
   Future<bool> showTestNotification() async {
-    final logId = await logService?.recordCreated(
+    final store = historyStore;
+    final logger = logService;
+    final en = notificationLanguage == 'en';
+    final title = en ? 'Qirsh test notification' : 'إشعار تجريبي من قرش';
+    final body = en
+        ? 'This checks whether Qirsh can show notifications.'
+        : 'هذا الإشعار للتأكد من أن قِرش يقدر يعرض الإشعارات.';
+    final logId = await logger?.recordCreated(
         channel: _localChannel, notificationType: 'test');
     try {
       await requestPermissionsIfNeeded();
       await _plugin.show(
         id: 99001,
-        title: 'إشعار تجريبي من قرش',
-        body:
-            'إذا ظهر هذا الإشعار فإن إذن إشعارات قِرش يعمل. لا يعني ذلك قراءة إشعارات المصرف.',
+        title: title,
+        body: body,
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             _channel(_lightChannelId),
@@ -533,13 +543,20 @@ class LocalNotificationService {
         ),
       );
       if (logId != null) {
-        await logService?.recordSent(
+        await logger?.recordSent(
             logId: logId, channel: _localChannel, notificationType: 'test');
       }
+      await _storeHistory(store, NotificationHistoryEntry(
+        id: 'notif_99001',
+        kind: 'test',
+        title: title,
+        body: body,
+        sentAt: DateTime.now().toUtc(),
+      ));
       return true;
     } catch (error, stackTrace) {
       if (logId != null) {
-        await logService?.recordFailed(
+        await logger?.recordFailed(
           logId: logId,
           channel: _localChannel,
           notificationType: 'test',
@@ -593,9 +610,11 @@ class LocalNotificationService {
     required String body,
     required NotificationType type,
     required NotificationPreferences preferences,
+    Future<void> Function(NotificationHistoryEntry)? storeHistory,
     required int notifId,
   }) async {
     await _show(
+      storeHistory: storeHistory,
       // MALI-061n §3 — the caller always supplies a stable
       // budgetAlertNotificationId(budgetId, periodStart, bucket); no display-text
       // fallback (which would change the id whenever the rendered text changed).
@@ -903,6 +922,7 @@ class LocalNotificationService {
     required NotificationPreferences preferences,
     required NotificationDetails details,
     String? payload,
+    Future<void> Function(NotificationHistoryEntry)? storeHistory,
     bool genericContent = false,
   }) async {
     debugPrint(
@@ -911,6 +931,8 @@ class LocalNotificationService {
       return;
     }
 
+    // A send that finishes after an account switch keeps its original store.
+    final store = storeHistory ?? historyStore;
     // MALI-019 §6 — lock-screen privacy. The OS-displayed content is generic
     // when redaction is on (no amount/merchant/account/sender/balance/name/raw
     // SMS); the in-app inbox history below keeps the real content, shown only
@@ -961,7 +983,7 @@ class LocalNotificationService {
         );
         await _recordSent(logId, notificationType);
         await _recordHistory(
-            id, title, body, notificationType, effectivePayload);
+            id, title, body, notificationType, effectivePayload, store);
         return;
       }
 
@@ -977,7 +999,7 @@ class LocalNotificationService {
       );
       debugPrint('[Notif] plugin.show done');
       await _recordSent(logId, notificationType);
-      await _recordHistory(id, title, body, notificationType, effectivePayload);
+      await _recordHistory(id, title, body, notificationType, effectivePayload, store);
     } catch (error, stackTrace) {
       // A show/schedule failure must never crash the caller (many call sites
       // are unawaited fire-and-forget) — record it and stop here instead of
@@ -1087,26 +1109,34 @@ class LocalNotificationService {
     String body,
     NotificationType type,
     String? payload,
+    Future<void> Function(NotificationHistoryEntry)? store,
   ) async {
-    final store = historyStore;
     if (store == null || type == NotificationType.marketing) {
       return;
     }
     final decoded = CaptureNotificationPayload.tryDecode(payload);
+    final transactionId = decoded?.transactionId;
+    await _storeHistory(store, NotificationHistoryEntry(
+      id: transactionId ?? 'notif_$id',
+      kind: type.name,
+      title: title,
+      body: body,
+      route: decoded?.route ??
+          (transactionId == null
+              ? null
+              : '/transaction/${Uri.encodeComponent(transactionId)}'),
+      sentAt: DateTime.now().toUtc(),
+    ));
+  }
+
+  Future<void> _storeHistory(
+    Future<void> Function(NotificationHistoryEntry)? store,
+    NotificationHistoryEntry entry,
+  ) async {
     try {
-      await store(
-        NotificationHistoryEntry(
-          id: decoded?.transactionId ?? 'notif_$id',
-          kind: type.name,
-          title: title,
-          body: body,
-          route: decoded?.route ??
-              (decoded?.transactionId != null ? '/transactions' : null),
-          sentAt: DateTime.now().toUtc(),
-        ),
-      );
+      await store?.call(entry);
     } catch (_) {
-      // السجل ثانوي — لا يؤثر على عرض الإشعار نفسه.
+      // History is secondary to the notification already handed to the OS.
     }
   }
 

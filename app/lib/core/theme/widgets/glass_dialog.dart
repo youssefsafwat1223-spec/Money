@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_colors.dart';
+import 'navy_sheet_theme.dart';
 
 /// An [AlertDialog] on the approved opaque dialog surface.
 ///
@@ -14,12 +15,14 @@ class GlassAlertDialog extends StatelessWidget {
     this.content,
     this.actions,
     this.actionsPadding,
+    this.scrollableContent = false,
   });
 
   final Widget? title;
   final Widget? content;
   final List<Widget>? actions;
   final EdgeInsetsGeometry? actionsPadding;
+  final bool scrollableContent;
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +93,15 @@ class GlassAlertDialog extends StatelessWidget {
                       child: DefaultTextStyle(
                         style: dialogTheme.contentTextStyle ??
                             theme.textTheme.bodyMedium!,
-                        child: content!,
+                        child: DismissKeyboardOnOutsideTap(
+                          child: scrollableContent
+                              ? SingleChildScrollView(
+                                  keyboardDismissBehavior:
+                                      ScrollViewKeyboardDismissBehavior.onDrag,
+                                  child: content!,
+                                )
+                              : content!,
+                        ),
                       ),
                     ),
                   ),

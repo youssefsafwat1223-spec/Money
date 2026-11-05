@@ -345,6 +345,7 @@ class _ManualTransactionSheetState
     }
 
     return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.only(
         left: AppSpacing.gutter,
         right: AppSpacing.gutter,

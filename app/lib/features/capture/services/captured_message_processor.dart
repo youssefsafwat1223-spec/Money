@@ -171,17 +171,14 @@ class CapturedMessageProcessor {
       // the settings row `localeProvider` reads in the UI.
       final notificationLanguage =
           (await settingsRepository.getSettings()).language;
-      // في الـ background isolate لا يكون historyStore مضبوطاً من main —
-      // نربطه هنا حتى تظهر إشعارات الالتقاط في شاشة الرسائل أيضاً.
-      LocalNotificationService.instance.historyStore ??= (entry) async {
-        final preferences =
-            await LoadNotificationPreferencesUseCase(settingsRepository).call();
-        await SaveNotificationPreferencesUseCase(settingsRepository).call(
-          preferences.copyWith(
-            inboxState: preferences.inboxState.addHistory(entry),
-          ),
-        );
-      };
+      Future<void> storeHistory(NotificationHistoryEntry entry) async {
+        if (ownershipGuard != null && admissionToken != null &&
+            !await ownershipGuard.isCurrent(admissionToken)) {
+          return;
+        }
+        await settingsRepository.appendNotificationHistory(entry,
+            isCurrent: () => settingsRepository.isDatabaseOpen);
+      }
       // CAP-7: the background isolate has no shell to wire the generic-text flag.
       LocalNotificationService.instance.captureNotifyV2 = () {
         try {
@@ -327,6 +324,7 @@ class CapturedMessageProcessor {
       if (showNotifications) {
         await checkBudgetAlert(db, notificationPreferences,
             lang: notificationLanguage,
+            storeHistory: storeHistory,
             committedTransactions:
                 newlyAddedTransactions(result.addTransactionResult));
       }
@@ -350,6 +348,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
+              storeHistory: storeHistory,
               stableId: result.notificationStableId,
             );
           case CapturedMessageDisposition.requestConfirmation:
@@ -363,6 +362,7 @@ class CapturedMessageProcessor {
                 title: content.title,
                 body: content.body,
                 preferences: notificationPreferences,
+                storeHistory: storeHistory,
               );
             }
           case CapturedMessageDisposition.suspiciousDuplicate:
@@ -374,6 +374,7 @@ class CapturedMessageProcessor {
               title: content.title,
               body: content.body,
               preferences: notificationPreferences,
+              storeHistory: storeHistory,
               stableId: result.notificationStableId,
             );
           case CapturedMessageDisposition.unprocessable:
@@ -384,6 +385,7 @@ class CapturedMessageProcessor {
               title: unsupported.title,
               body: unsupported.body,
               preferences: notificationPreferences,
+              storeHistory: storeHistory,
               stableId: result.notificationStableId,
             );
         }
@@ -443,6 +445,7 @@ class CapturedMessageProcessor {
     required Iterable<TransactionEntity> committedTransactions,
     DateTime? now,
     Future<void> Function(BudgetAlertContent content)? emit,
+    Future<void> Function(NotificationHistoryEntry)? storeHistory,
   }) async {
     final transactions = committedTransactions.toList();
     if (transactions.isEmpty) return;
@@ -502,6 +505,7 @@ class CapturedMessageProcessor {
         type: content.type,
         preferences: prefs,
         notifId: content.notifId,
+        storeHistory: storeHistory,
       );
     }
   }

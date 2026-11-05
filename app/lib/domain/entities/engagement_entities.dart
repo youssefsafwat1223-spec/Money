@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'budget_entity.dart';
 import 'goal_entity.dart';
 import 'supporting_entities.dart';
@@ -340,6 +342,42 @@ class NotificationInboxState {
       ...history.where((item) => item.id != entry.id),
     ];
     return copyWith(history: next.take(80).toList());
+  }
+
+  /// Keep locally received notifications when an older settings snapshot
+  /// arrives from another device or a preferences form.
+  static String mergeHistoryJson(String incoming, String current) {
+    if (current.isEmpty || current == incoming) return incoming;
+    Map<String, dynamic>? read(String raw) {
+      try {
+        return raw.isEmpty ? <String, dynamic>{}
+            : jsonDecode(raw) as Map<String, dynamic>?;
+      } on FormatException {
+        return null;
+      } on TypeError {
+        return null;
+      }
+    }
+
+    final localJson = read(current);
+    final localInbox = localJson?['notificationInboxState'];
+    final local = fromJson(localInbox is Map<String, dynamic> ? localInbox : null);
+    if (local.history.isEmpty) return incoming;
+    final nextJson = read(incoming);
+    if (nextJson == null) return current;
+    final nextInbox = nextJson['notificationInboxState'];
+    final next = fromJson(nextInbox is Map<String, dynamic> ? nextInbox : null);
+    final entries = [...local.history, ...next.history]
+      ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+    final ids = <String>{};
+    final history = entries.where((entry) => ids.add(entry.id)).take(80).toList();
+    nextJson['notificationInboxState'] = next.copyWith(history: history,
+      dismissedCampaignIds: {
+        ...next.dismissedCampaignIds,
+        ...local.dismissedCampaignIds.where(ids.contains),
+      },
+    ).toJson();
+    return jsonEncode(nextJson);
   }
 
   NotificationInboxState markImpression(String id) {
