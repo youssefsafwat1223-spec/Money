@@ -213,10 +213,10 @@ test('migration numbering: the original Coupon pair is immutable and unique', ()
   const coupon = files.filter((f) => /coupon/i.test(f)).sort();
   assert.deepEqual(coupon.slice(0, 2), ['0081_coupons.sql', '0082_coupon_metrics.sql']);
   for (const later of coupon.slice(2)) {
-    assert.ok(Number(later.slice(0, 4)) > 82,
+    assert.ok(Number(later.split('_', 1)[0]) > 82,
       `a coupon migration must be numbered above the shipped pair: ${later}`);
   }
 
-  const numbers = files.map((f) => f.slice(0, 4));
+  const numbers = files.map((f) => f.split('_', 1)[0]);
   assert.equal(new Set(numbers).size, numbers.length, 'no duplicate migration number');
 });
