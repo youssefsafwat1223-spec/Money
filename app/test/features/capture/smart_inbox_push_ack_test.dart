@@ -114,6 +114,21 @@ void main() {
     expect((await item(id))['status'], 'dismissed');
   });
 
+  test('manual analysis cleanup removes only the explicit local draft', () async {
+    final repo = DriftSmartInboxRepository(db);
+    final ordinary = await repo.saveUnprocessableCapture(
+      payloadId: 'ordinary', rawMessage: 'review', source: 'manualPaste',
+    );
+    final draft = await repo.saveUnprocessableCapture(
+      payloadId: 'draft', rawMessage: 'review', source: 'manualPaste',
+      awaitingAnalysis: true,
+    );
+    await repo.removeManualAnalysisDraft(ordinary);
+    await repo.removeManualAnalysisDraft(draft);
+
+    expect((await repo.getOpen()).map((entry) => entry.id), [ordinary]);
+  });
+
   test('a legacy local-only row already stuck at pending_sync=1 is settled '
       'without a server call', () async {
     final repo = DriftSmartInboxRepository(db);

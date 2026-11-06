@@ -106,6 +106,12 @@ void main() {
   ///   planning_server_currency_repair (1)  parked rows after repair
   ///   restore_journal (1)          journal rows by operation_id
   ///   capture_work_item_repo (2)   regenerable model output
+  ///   drift_smart_inbox_repo (1)   deletes only the exact, locally created
+  ///                                manual analysis draft after durable ingest
+  ///                                or intentional ignore in the same account.
+  ///                                One atomic statement. If it fails or the
+  ///                                process dies after ingest, the review copy
+  ///                                remains and re-ingestion can deduplicate.
   ///   capture_review_label_repo (3) regenerable review labels
   ///   affiliate_click_gateway (1)  EXPIRED click receipts (TTL sweep)
   ///
@@ -164,6 +170,7 @@ void main() {
     'lib/features/planning_sync/services/planning_server_currency_repair.dart': 1,
     'lib/core/backup/restore_journal.dart': 1,
     'lib/data/repositories/capture_work_item_repository.dart': 2,
+    'lib/data/repositories/drift_smart_inbox_repository.dart': 1,
     'lib/data/repositories/capture_review_label_repository.dart': 3,
     'lib/features/coupons/affiliate_click_gateway.dart': 1,
     // F

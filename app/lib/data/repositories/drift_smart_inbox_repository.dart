@@ -101,6 +101,7 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
           if (senderId != null && senderId.isNotEmpty) 'sender_id': senderId,
           'received_at': effectiveReceivedAt.toIso8601String(),
           'local_only': true,
+          if (awaitingAnalysis) 'manual_analysis_draft': true,
         })),
         Variable.withString(dateTimeToSql(effectiveReceivedAt)),
         Variable.withString(dateTimeToSql(now)),
@@ -114,7 +115,8 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
   Future<void> removeManualAnalysisDraft(String id) async {
     await _db.customUpdate(
       "DELETE FROM smart_inbox_items WHERE id = ? AND server_id = id "
-      "AND json_extract(metadata_json, '\$.source') = 'manualPaste';",
+      "AND json_extract(metadata_json, '\$.source') = 'manualPaste' "
+      "AND json_extract(metadata_json, '\$.manual_analysis_draft') = 1;",
       variables: [Variable.withString(id)],
     );
   }

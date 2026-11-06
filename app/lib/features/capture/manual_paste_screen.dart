@@ -9,7 +9,6 @@ import '../../core/backend/supabase_config.dart';
 import '../../core/utils/id_generator.dart';
 import '../../data/repositories/drift_smart_inbox_repository.dart';
 import '../../core/session/app_session.dart';
-import '../settings/settings_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -237,8 +236,13 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
 
   Future<_PasteBatchItem> _ingestOne(String text) async {
     final ingest = ref.read(ingestCapturedMessageUseCaseProvider);
-    final settings = ref.read(userSettingsProvider).valueOrNull;
     final admission = AppSession.instance.captureLocalWorkAuthority();
+    final settings = admission == null
+        ? null
+        : await ref.read(userSettingsRepositoryProvider).getSettings();
+    if (admission?.isCurrent == false || !mounted) {
+      throw StateError('paste_admission_changed');
+    }
     DriftSmartInboxRepository? drafts;
     String? draftId;
     if (admission != null && settings?.cloudProcessingEnabled == true &&
