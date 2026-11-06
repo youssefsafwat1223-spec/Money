@@ -6972,4 +6972,8 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get retryBankAnalysis => 'أعد التحليل بالذكاء الاصطناعي';
+
+  @override
+  String get onboardingAccountCheckFailed =>
+      'تعذّر التحقق من إعداد حسابك. تحقّق من اتصالك ثم أعد المحاولة.';
 }

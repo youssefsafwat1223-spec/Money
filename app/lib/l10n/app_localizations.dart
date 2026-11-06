@@ -11682,6 +11682,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أعد التحليل بالذكاء الاصطناعي'**
   String get retryBankAnalysis;
+
+  /// No description provided for @onboardingAccountCheckFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر التحقق من إعداد حسابك. تحقّق من اتصالك ثم أعد المحاولة.'**
+  String get onboardingAccountCheckFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

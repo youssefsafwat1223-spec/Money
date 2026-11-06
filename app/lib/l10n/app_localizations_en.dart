@@ -6968,4 +6968,8 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get retryBankAnalysis => 'Retry smart analysis';
+
+  @override
+  String get onboardingAccountCheckFailed =>
+      'We couldn\'t check your account setup. Check your connection and try again.';
 }

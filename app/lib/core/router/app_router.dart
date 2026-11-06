@@ -19,6 +19,9 @@ import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/onboarding/setup_screen.dart';
 import '../../features/onboarding/story_screen.dart';
 import '../../features/onboarding/language_screen.dart';
+import '../../features/onboarding/account_completion_screen.dart';
+import '../backend/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../features/reports/reports_screen.dart';
 import '../../features/help/help_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
@@ -155,6 +158,13 @@ final appRouter = GoRouter(
       path: '/onboarding/auth',
       name: 'onboarding-auth',
       builder: (context, state) => const OnboardingAuthScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding/check',
+      builder: (context, state) => SupabaseConfig.isConfigured
+          ? OnboardingAccountCompletionScreen(
+              client: supabase.Supabase.instance.client)
+          : const OnboardingSetupScreen(),
     ),
     GoRoute(
       path: '/onboarding/setup',

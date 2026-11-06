@@ -80,9 +80,8 @@ String signInFailureCode(Object error) {
 /// Same flat navy background and small fixed logo as the rest of the
 /// onboarding sequence — no photo backdrop.
 ///
-/// Auth success only sets the identity — onboarding is finished later by the
-/// setup page. Legacy backup restore remains available later from Data Transfer
-/// and no longer interrupts the first authenticated session.
+/// After sign-in, account completion decides whether to enter Home or run
+/// setup. Legacy backup restore remains available from Data Transfer.
 class OnboardingAuthScreen extends ConsumerStatefulWidget {
   const OnboardingAuthScreen({super.key});
 
@@ -132,6 +131,10 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         sessionCurrent: identity.isCurrent,
       );
       if (SupabaseConfig.isConfigured) {
+        if (!AppSession.instance.hasCompletedOnboarding) {
+          appRouter.go('/onboarding/check');
+          return;
+        }
         await AppSession.instance.reconcileAccountOnboarding(
           supabase.Supabase.instance.client,
         );

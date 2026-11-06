@@ -3574,5 +3574,6 @@
   "coachBillsTitle": "Track a bill",
   "coachBillsBody": "Tap + to add a subscription or instalment. Set its amount and due date, then record payments from its details.",
   "pasteSavedForAnalysis": "Message saved in Smart Inbox for analysis.",
-  "retryBankAnalysis": "Retry smart analysis"
+  "retryBankAnalysis": "Retry smart analysis",
+  "onboardingAccountCheckFailed": "We couldn't check your account setup. Check your connection and try again."
 }

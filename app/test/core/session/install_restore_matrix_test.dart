@@ -219,7 +219,7 @@ void main() {
     });
   });
 
-  test('a reinstall repeats welcome and setup for the returning account, '
+  test('a reinstall repeats welcome until account completion is verified, '
       'then ordinary reopen keeps completion', () async {
     final session = AppSession.instance;
     await session.markWelcomeManifestoSeen();
@@ -239,7 +239,7 @@ void main() {
     await session.markWelcomeManifestoSeen();
     await launchAs('uid-a');
     expect(session.hasCompletedOnboarding, isFalse,
-        reason: 'old account completion cannot bypass the new install setup');
+        reason: 'cleared local completion requires verification before skipping setup');
     await session.finishOnboarding();
     expect(session.hasCompletedOnboarding, isTrue);
     expect(presentation.requiresSetup, isFalse);

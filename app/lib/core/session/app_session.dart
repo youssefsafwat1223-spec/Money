@@ -73,6 +73,11 @@ class DatabaseHostAdmission {
   bool get isCurrent => _owner._databaseAdmissionCurrent(this);
 }
 
+/// The account's setup state could not be verified and can be retried.
+class OnboardingStatusUnavailable implements Exception {
+  const OnboardingStatusUnavailable();
+}
+
 /// MALI-054n: thrown when a new identity cannot be admitted because the previous
 /// owner's local data / native capture residue could not be fully cleared. The
 /// admission path fails closed rather than exposing one user's data to another.
@@ -3408,10 +3413,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Auth events can arrive before [setIdentity] stores the chosen method, so
   /// the auth screen calls this once more after setting the local identity.
   Future<bool> reconcileAccountOnboarding(
-    supabase.SupabaseClient client,
-  ) async {
+    supabase.SupabaseClient client, {
+    bool requireRemoteResult = false,
+  }) async {
     final firstGrant = _pendingFirstGrant;
-    await _reconcileSupabaseSession(client.auth.currentSession, client: client);
+    final resolved = await _reconcileSupabaseSession(
+      client.auth.currentSession,
+      client: client,
+      requireOnboardingResult: requireRemoteResult,
+    );
+    if (requireRemoteResult && resolved == null) {
+      throw const StaleAdmissionException();
+    }
     // The auth screen skips finishOnboarding when a returning account's
     // completion is learned here. Complete only the proof retained by this
     // process's explicit admission; ordinary restores have no such proof.
@@ -4608,14 +4621,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
   }
 
-  Future<void> _reconcileSupabaseSession(
+  Future<bool?> _reconcileSupabaseSession(
     supabase.Session? session, {
     required supabase.SupabaseClient client,
     AdmissionAuthority? authority,
     AsrAdoptionContext? asr,
+    bool requireOnboardingResult = false,
   }) async {
     final databaseLoss = _databaseLossGeneration;
-    if (isGuest || authMethod == null) return;
+    if (isGuest || authMethod == null) return null;
     final epoch = _admissionEpoch;
     bool current() {
       final actual = client.auth.currentSession;
@@ -4627,10 +4641,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
                   actual?.accessToken == session.accessToken);
     }
 
-    if (!current()) return;
+    if (!current()) return null;
     if (authority != null &&
         (!authority.isCurrent || authority.uid != session?.user.id)) {
-      return;
+      return null;
     }
     if (session != null && session.isExpired) {
       _revokeDatabasePublication();
@@ -4640,7 +4654,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       if (_onboardingDone) {
         markSessionInvalid(cause: SessionLossCause.sessionExpiry);
       }
-      return;
+      return null;
     }
     if (session == null) {
       _revokeDatabasePublication();
@@ -4663,7 +4677,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 ? SessionLossCause.awaitingAdoption
                 : SessionLossCause.other);
       }
-      return;
+      return null;
     }
     // ASR §4.7: every automatic admission route also requires the committed
     // record to be valid, ordinary and equal to SDK memory, with no explicit or
@@ -4685,13 +4699,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
 
     final denial = coordinatorDenial();
-    if (denial == 'explicit_exclusion' || denial == 'asr_exclusion') return;
+    if (denial == 'explicit_exclusion' || denial == 'asr_exclusion') return null;
     if (denial == AuthCoordinator.custodySuccessor) {
       // B10: the coordinator's own routine successor in custody, never an SDK
       // mutation and never a loss. The routine continuation installs it (under
       // the routine policy); its SDK event reconciles again.
       unawaited(coord?.refreshIfDue().catchError((Object _) => null));
-      return;
+      return null;
     }
     if (denial != null) {
       _revokeDatabasePublication();
@@ -4705,7 +4719,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 ? SessionLossCause.awaitingAdoption
                 : SessionLossCause.other);
       }
-      return;
+      return null;
     }
     // Owner gate (MALI-002): never admit a UID while the local DB still holds
     // a different account's data. When the wipe hook isn't registered yet
@@ -4719,7 +4733,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // (no network under the hold); anything else stays in local read.
     if (asr != null &&
         (uid != asr.owner || !_onboardingKnownLocally(session))) {
-      return;
+      return null;
     }
     // An automatic reconcile holds an open-existing authority captured NOW (or a
     // rebootstrap's maintenance authority); it never holds explicit authority.
@@ -4739,9 +4753,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _accountFence.guard(uid, current: current);
     } on AccountFenceDeniedException {
       if (current()) value = SessionStatus.sessionExpired;
-      return;
+      return null;
     } on StaleAdmissionException {
-      return;
+      return null;
     }
     final base = authority ?? _authorityAt(epoch, uid, canCreate: false);
     final guarded = AdmissionAuthority(
@@ -4750,14 +4764,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final adm = _Admission(uid, guarded,
         sessionCurrent: fresh, asrCause: asr?.authority);
     final ownership = await _ensureLocalDataOwnedBy(uid, adm);
-    if (lossSeq != _authLossSeq || !adm.current) return; // lost or superseded
-    if (ownership == LocalDataOwnership.revoked) return;
-    if (ownership == LocalDataOwnership.deferred) return;
+    if (lossSeq != _authLossSeq || !adm.current) return null; // lost or superseded
+    if (ownership == LocalDataOwnership.revoked) return null;
+    if (ownership == LocalDataOwnership.deferred) return null;
     if (ownership == LocalDataOwnership.unresolved) {
       // Fail closed: local data is preserved but must not be shown to an
       // identity whose ownership could not be verified. Route to sign-in.
       markSessionInvalid();
-      return;
+      return null;
     }
     // ASR §11.2: SE2/SE3 and P_publish between SE1 (the owner publication
     // above) and writable publication.
@@ -4765,7 +4779,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         (!await asr.beforePublication() ||
             lossSeq != _authLossSeq ||
             !adm.current)) {
-      return;
+      return null;
     }
     final remoteEmail = session.user.email;
     final previousEmail = email;
@@ -4784,16 +4798,23 @@ class AppSession extends ValueNotifier<SessionStatus> {
         (sameIdentity &&
             fallbackKey != null &&
             _completedAccountKeys.contains(fallbackKey)));
-    if (!completed && !localSetupRequired && asr == null) {
-      // Network: read BEFORE the admission operation below, which a Remove data
-      // drains and which must never wait on the network.
-      completed = await _readRemoteOnboardingCompletion(
+    if (!completed && asr == null) {
+      // Installation presentation is separate from account completion.
+      // Read before the admission operation so removal never waits for network.
+      final remoteCompleted = await _readRemoteOnboardingCompletion(
         session.user.id,
+        client,
       );
+      if (!adm.current || lossSeq != _authLossSeq) return null;
+      if (remoteCompleted == null && requireOnboardingResult) {
+        throw const OnboardingStatusUnavailable();
+      }
+      completed = remoteCompleted ?? false;
     }
     // The identity/status half is an admission operation: Remove data drains it,
     // and its authority is re-checked immediately before every write and before
     // the status publication.
+    bool? publishedCompletion;
     await _admissionOp(() {
       final run = _identityTail.then((_) async {
         bool live() =>
@@ -4802,9 +4823,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
             _explicitAdmissionEpoch == null &&
             (asr?.mayProceed() ?? true);
         if (!live()) return;
+        // A concurrent reconciliation may have verified this same account while
+        // this lookup was in flight. Keep that durable completion.
+        final accountCompleted = completed ||
+            (_installPresentation?.requiresSetup != true &&
+                _completedAccountKeys.contains(accountKey));
         await _storage.write(key: _kCurrentAccount, value: accountKey);
         if (!live()) return;
-        if (completed && !_completedAccountKeys.contains(accountKey)) {
+        if (accountCompleted && !_completedAccountKeys.contains(accountKey)) {
           final keys = {..._completedAccountKeys, accountKey}.toList()..sort();
           await _storage.write(
               key: _kCompletedAccounts, value: jsonEncode(keys));
@@ -4814,9 +4840,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
           await _storage.write(key: _kEmail, value: remoteEmail);
           if (!live()) return;
         }
+        if (accountCompleted && localSetupRequired) {
+          await _installPresentation?.completeSetup();
+          if (!live()) return;
+        }
         _currentAccountKey = accountKey;
-        if (completed) _completedAccountKeys.add(accountKey);
-        _onboardingDone = completed;
+        if (accountCompleted) _completedAccountKeys.add(accountKey);
+        _onboardingDone = accountCompleted;
         if (remoteEmail != null && remoteEmail.trim().isNotEmpty) {
           email = remoteEmail;
         }
@@ -4828,7 +4858,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
             _accountSwitchEpoch == adm.authority.epoch) {
           _accountSwitchEpoch = null;
         }
-        value = completed
+        value = accountCompleted
             ? SessionStatus.authenticated
             : SessionStatus.needsOnboarding;
         // ValueNotifier listeners may have revoked authority synchronously.
@@ -4836,7 +4866,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
         notifyListeners();
         if (!live()) return;
         _recordDatabaseIdentityPublication(databaseLoss);
-        asr?.published = completed;
+        asr?.published = accountCompleted;
+        publishedCompletion = accountCompleted;
         // The committed, guarded automatic publication is the other place a
         // consent proof is issued (a returning, already-authenticated user): the
         // evidence is the REAL SDK session of this client for exactly this uid.
@@ -4857,29 +4888,35 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return run;
     }, current: () => lossSeq == _authLossSeq && adm.current &&
         _explicitAdmissionEpoch == null);
+    if (!adm.current || lossSeq != _authLossSeq ||
+        _explicitAdmissionEpoch != null) {
+      return null;
+    }
     _commitDatabasePublication(databaseLoss);
+    return publishedCompletion;
   }
 
-  Future<bool> _readRemoteOnboardingCompletion(String userId) async {
-    if (!SupabaseConfig.isConfigured) return false;
+  Future<bool?> _readRemoteOnboardingCompletion(
+      String userId, supabase.SupabaseClient client) async {
     try {
-      final row = await supabase.Supabase.instance.client
+      final row = await client
           .from('profiles')
           .select('onboarding_completed_at')
           .eq('id', userId)
-          .maybeSingle();
+          .maybeSingle()
+          .retry(enabled: false)
+          .timeout(const Duration(seconds: 8));
       return row?['onboarding_completed_at'] != null;
     } catch (error) {
-      // Offline startup and a not-yet-deployed additive migration both fall
-      // back to the account-scoped local marker. Never convert either into a
-      // false completion or an auth failure.
+      // An unavailable lookup is distinct from confirmed incomplete setup.
+      // Interactive sign-in can retry, while automatic startup keeps its fallback.
       if (kDebugMode) {
         debugPrint(
           '[AppSession] remote onboarding lookup skipped: '
           '${error.runtimeType}',
         );
       }
-      return false;
+      return null;
     }
   }
 
