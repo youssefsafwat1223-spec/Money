@@ -140,6 +140,14 @@ struct PostBankStatusIntent: AppIntent {
         allowAi: mirrorAllowsAi
       )
       if let response = attempt.response {
+        if response.analysisPending {
+          // A 202 is a durable receipt, not a failed parse. Keep the native copy
+          // until an admitted app import acknowledges the final server result.
+          _ = SharedCaptureStore.updateStatus(payloadID: payloadID,
+            status: .pendingSend, failureReason: "ai_primary_pending")
+          SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
+          return .result()
+        }
         // H-19: do NOT remove the durable local copy on backend success. The
         // relay row in processed_captures is swept unconditionally at 30 days
         // (run_prune_processed_captures), so deleting the only local copy here
@@ -158,7 +166,8 @@ struct PostBankStatusIntent: AppIntent {
         // unread message keeps the server's own wording.
         let savedCapture = response.notification.type == "new_transaction"
           || response.notification.type == "needs_review"
-        let posted = savedCapture
+        let posted = response.notification.title.isEmpty ||
+          response.pushAttempted == true || response.pushSent ? false : savedCapture
           ? await scheduleGenericCaptureNotification(
             payloadID: payloadID,
             aiDetail: response.aiDetail
@@ -171,6 +180,12 @@ struct PostBankStatusIntent: AppIntent {
         if posted, response.pushAttempted ?? response.pushSent {
           await Self.removeDeliveredPushes(payloadID: payloadID)
         }
+        return .result()
+      }
+      if mirrorAllowsAi {
+        _ = SharedCaptureStore.updateStatus(payloadID: payloadID,
+          status: .pendingSend, failureReason: "ai_primary_pending")
+        SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         return .result()
       }
       // Backend unreachable after the idempotent retry. Notify ONLY when the
@@ -715,6 +730,7 @@ struct BackendCaptureResponse {
   /// What the server's AI read from this message (`capture.parsed`), returned
   /// to this phone over the same HTTPS reply; nil when it read no amount.
   var aiDetail: CaptureDetail? = nil
+  var analysisPending: Bool = false
 }
 
 /// The fields a capture banner shows, from the server's AI or the local parser.
@@ -801,6 +817,11 @@ struct BackendCaptureClient {
     if config.captureContractV2 {
       body["schema_version"] = 2
     }
+    if allowAi {
+      body["analysis_mode"] = "ai_primary_v1"
+      body["backgroundAnalysis"] = true
+      body["localNotification"] = false
+    }
     urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
     // C.4 / H3.1: the request goes ONLY through the one gated native transport
@@ -819,6 +840,14 @@ struct BackendCaptureClient {
       throw BackendCaptureError.egressDenied
     }
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+    if statusCode == 202,
+       let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let state = json["state"] as? String,
+       state == "in_progress" || state == "retryable" {
+      return BackendCaptureResponse(
+        notification: BackendNotification(title: "", body: "", type: "received"),
+        pushSent: false, pushAttempted: nil, analysisPending: true)
+    }
     guard statusCode == 200 else {
       throw BackendCaptureError.http(statusCode)
     }

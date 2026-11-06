@@ -98,6 +98,7 @@ class FakeCapture implements AsrCapturePort {
   bool consent = true;
   bool refusePrepare = false;
   String finishResult = 'confirmed';
+  Completer<void>? finishGate;
   bool clearOk = true;
   bool compensateOk = true;
   bool retireOrphanOk = true;
@@ -135,6 +136,7 @@ class FakeCapture implements AsrCapturePort {
   @override
   Future<String> finish(AsrPreparedSuccessor p) async {
     calls.add('finish');
+    await finishGate?.future;
     return finishResult;
   }
 
@@ -608,6 +610,26 @@ void main() {
         reason: 'the backoff must not take the user away from explicit sign-in');
     expect(AutomaticSessionRecovery.restoringSession.value, isFalse);
     expectReleased();
+  });
+
+  test('a stalled Cloud finalization does not hide an already admitted home', () async {
+    await seed();
+    final finish = Completer<void>();
+    capture.finishGate = finish;
+    final run = asr.run();
+    try {
+      await pumpEventQueue(times: 40);
+      expect(capture.calls, contains('finish'));
+      expect(store.committed!.admission, AdmissionDisposition.ordinary);
+      expect(coord.asrExclusion, isNull);
+      expect(AutomaticSessionRecovery.restoringSession.value, isFalse,
+          reason: 'the verified session and scope are usable before Cloud cleanup finishes');
+      expect(asr.running, isTrue,
+          reason: 'cleanup ownership remains held until the operation really ends');
+    } finally {
+      finish.complete();
+      await run;
+    }
   });
 
   test('ordinary resume without local read does not cover the current page', () async {

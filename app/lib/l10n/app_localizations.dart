@@ -2086,7 +2086,7 @@ abstract class AppL10n {
   /// No description provided for @coachDashboardPeriodBody.
   ///
   /// In ar, this message translates to:
-  /// **'مُحدِّد الفترة يغيّر كل الأرقام في الشاشة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص.'**
+  /// **'اختار اليوم أو الأسبوع أو الشهر لتغيير الملخص المالي المعروض.'**
   String get coachDashboardPeriodBody;
 
   /// No description provided for @coachDashboardInboxTitle.
@@ -10906,7 +10906,7 @@ abstract class AppL10n {
   /// No description provided for @pasteAnalysisHowItWorks.
   ///
   /// In ar, this message translates to:
-  /// **'تُقرأ الرسائل على جهازك أولًا. عند الحاجة، يساعد الذكاء الاصطناعي إذا كانت السحابة والتحليل الذكي مفعّلين.'**
+  /// **'لما السحابة والتحليل الذكي يكونوا مفعّلين، الذكاء الاصطناعي بيقرأ الرسائل. عند إيقافهم، قرش بيحلل على الجهاز.'**
   String get pasteAnalysisHowItWorks;
 
   /// No description provided for @pasteReadOnDevice.
@@ -11610,6 +11610,78 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'المزامنة والتحليل الذكي متوقفان بعد تسجيل الخروج. فعّلهما من جديد لاستئناف الخدمة.'**
   String get cloudResumeBody;
+
+  /// No description provided for @languageFirstTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر لغتك'**
+  String get languageFirstTitle;
+
+  /// No description provided for @languageFirstBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختار اللغة اللي تحب تستخدم بيها قِرش. تقدر تغيّرها بعدين.'**
+  String get languageFirstBody;
+
+  /// No description provided for @coachPasteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقرأ رسالة البنك'**
+  String get coachPasteTitle;
+
+  /// No description provided for @coachPasteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'من هنا الصق رسالة البنك. وفي قائمة + اختار لصق رسالة عشان التحليل الذكي يقرأها.'**
+  String get coachPasteBody;
+
+  /// No description provided for @coachAccountTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختار الحساب'**
+  String get coachAccountTitle;
+
+  /// No description provided for @coachAccountBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'من هنا اختار الحساب اللي تحب تتابعه. الأرقام والعملة بتتغيّر حسب اختيارك.'**
+  String get coachAccountBody;
+
+  /// No description provided for @coachBudgetTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد أول ميزانية'**
+  String get coachBudgetTitle;
+
+  /// No description provided for @coachBudgetBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط + وحدّد مبلغ الميزانية والفترة والحساب. تقدر تعدّلها في أي وقت.'**
+  String get coachBudgetBody;
+
+  /// No description provided for @coachBillsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تابع مدفوعاتك'**
+  String get coachBillsTitle;
+
+  /// No description provided for @coachBillsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وميعاد الدفع. بعد كده سجّل الدفعات من تفاصيله.'**
+  String get coachBillsBody;
+
+  /// No description provided for @pasteSavedForAnalysis.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرسالة محفوظة في الوارد الذكي وبانتظار التحليل.'**
+  String get pasteSavedForAnalysis;
+
+  /// No description provided for @retryBankAnalysis.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعد التحليل بالذكاء الاصطناعي'**
+  String get retryBankAnalysis;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

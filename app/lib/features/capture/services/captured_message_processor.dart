@@ -279,6 +279,10 @@ class CapturedMessageProcessor {
                 () => settingsRepository.getSettings(),
               ).allows(EgressClass.financialSync),
           aiClient: aiParserClient,
+          aiPrimarySelected: () async {
+            final settings = await settingsRepository.getSettings();
+            return settings.cloudProcessingEnabled && settings.aiConsentGranted;
+          },
           loadAiConsent: () async =>
               ConsentAuthority.decide(EgressClass.aiProcessing,
                           await settingsRepository.getSettings()),

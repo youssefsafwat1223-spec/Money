@@ -6,6 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/backend/supabase_config.dart';
+import '../../core/utils/id_generator.dart';
+import '../../data/repositories/drift_smart_inbox_repository.dart';
+import '../../core/session/app_session.dart';
+import '../settings/settings_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -232,16 +236,35 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
   }
 
   Future<_PasteBatchItem> _ingestOne(String text) async {
-    final result = await ref
-        .read(ingestCapturedMessageUseCaseProvider)
-        .fromCapturedMessage(
-          CapturedMessage(
-            text: text,
-            source: CapturedMessageSource.manualPaste,
-            receivedAt: DateTime.now().toUtc(),
-          ),
-        );
-    return _PasteBatchItem(message: text, result: result);
+    final ingest = ref.read(ingestCapturedMessageUseCaseProvider);
+    final settings = ref.read(userSettingsProvider).valueOrNull;
+    final admission = AppSession.instance.captureLocalWorkAuthority();
+    DriftSmartInboxRepository? drafts;
+    String? draftId;
+    if (admission != null && settings?.cloudProcessingEnabled == true &&
+        settings?.aiConsentGranted == true) {
+      drafts = DriftSmartInboxRepository(ref.read(appDatabaseProvider));
+      draftId = await drafts.saveUnprocessableCapture(
+        payloadId: IdGenerator.uuidV4(),
+        rawMessage: text,
+        source: CapturedMessageSource.manualPaste.name,
+        lang: settings!.language,
+        awaitingAnalysis: true,
+      );
+      if (!admission.isCurrent) throw StateError('paste_admission_changed');
+    }
+    final result = await ingest.fromCapturedMessage(CapturedMessage(
+      text: text,
+      source: CapturedMessageSource.manualPaste,
+      receivedAt: DateTime.now().toUtc(),
+    ));
+    final savedForAnalysis = draftId != null &&
+        result.disposition == CapturedMessageDisposition.unprocessable;
+    if (draftId != null && !savedForAnalysis && admission?.isCurrent == true) {
+      await drafts!.removeManualAnalysisDraft(draftId);
+    }
+    if (draftId != null && mounted) ref.invalidate(smartInboxItemsProvider);
+    return _PasteBatchItem(message: text, result: result, savedForAnalysis: savedForAnalysis);
   }
 
   Future<void> _handleSingleResult(_PasteBatchItem item) async {
@@ -289,7 +312,9 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
           showTopError(context, context.l10n.pasteSimilarNeedsReview);
         }
       case AddTransactionOutcome.notTransaction:
-        if (!SupabaseConfig.isConfigured) {
+        if (item.savedForAnalysis) {
+          showTopInfo(context, context.l10n.pasteSavedForAnalysis);
+        } else if (!SupabaseConfig.isConfigured) {
           showTopError(context, context.l10n.pasteAiOffline);
         } else {
           showTopError(
@@ -491,10 +516,12 @@ class _PasteBatchItem {
   const _PasteBatchItem({
     required this.message,
     required this.result,
+    this.savedForAnalysis = false,
   });
 
   final String message;
   final CapturedMessageResult result;
+  final bool savedForAnalysis;
 
   AddTransactionResult get addResult => result.addTransactionResult;
 

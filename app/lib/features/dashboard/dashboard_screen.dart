@@ -1,3 +1,4 @@
+import '../help/coach_marks.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -86,52 +87,56 @@ class DashboardScreen extends ConsumerWidget {
       // الهيرو الأزرق هو مصدر اللون في الصفحة دي — من غير هالة زرقا كمان
       // في الخلفية ورا المحتوى.
       ambient: false,
-      child: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(dashboardDataProvider),
-        child: async.when(
-          skipLoadingOnReload: true,
-          loading: () => const SkeletonList(rows: 5, withHero: true),
-          error: (error, stack) {
-            // الرسالة العامة بتخفي السبب — نطبعه في الديباج عشان يتشاف في
-            // الكونسول بدل ما نخمّن.
-            assert(() {
-              debugPrint('[dashboard] load failed: $error\n$stack');
-              return true;
-            }());
-            if (error is AuthRepoException) {
-              final authFailure = AppSession.instance
-                  .captureAuthRequiredFailure(ref.read(authClientProvider));
-              Future<void> recover() async {
-                if (!context.mounted ||
-                    !identical(ref.read(dashboardDataProvider), async)) {
-                  return;
-                }
-                await authFailure();
-              }
+      child: FirstUseGuide(
+          id: CoachMarkIds.dashboard,
+          marks: dashboardCoachMarks,
+          child: RefreshIndicator(
+            onRefresh: () async => ref.invalidate(dashboardDataProvider),
+            child: async.when(
+              skipLoadingOnReload: true,
+              loading: () => const SkeletonList(rows: 5, withHero: true),
+              error: (error, stack) {
+                // الرسالة العامة بتخفي السبب — نطبعه في الديباج عشان يتشاف في
+                // الكونسول بدل ما نخمّن.
+                assert(() {
+                  debugPrint('[dashboard] load failed: $error\n$stack');
+                  return true;
+                }());
+                if (error is AuthRepoException) {
+                  final authFailure = AppSession.instance
+                      .captureAuthRequiredFailure(ref.read(authClientProvider));
+                  Future<void> recover() async {
+                    if (!context.mounted ||
+                        !identical(ref.read(dashboardDataProvider), async)) {
+                      return;
+                    }
+                    await authFailure();
+                  }
 
-              WidgetsBinding.instance.addPostFrameCallback((_) => recover());
-              return _errorList(
-                title: context.l10n.homeSessionExpiredTitle,
-                description: context.l10n.homeSessionExpiredBody,
-                retryLabel: context.l10n.homeSignIn,
-                onRetry: recover,
-              );
-            }
-            return _errorList(
-              title: context.l10n.homeLoadFailed,
-              description: context.l10n.homeLoadFailedBody,
-              retryLabel: context.l10n.annRetry,
-              onRetry: () => ref.invalidate(dashboardDataProvider),
-            );
-          },
-          data: (data) => _HomeBody(
-            data: data,
-            displayName: settings?.displayName,
-            avatarPath: settings?.avatarPath,
-            privacyMode: privacyMode,
-          ),
-        ),
-      ),
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => recover());
+                  return _errorList(
+                    title: context.l10n.homeSessionExpiredTitle,
+                    description: context.l10n.homeSessionExpiredBody,
+                    retryLabel: context.l10n.homeSignIn,
+                    onRetry: recover,
+                  );
+                }
+                return _errorList(
+                  title: context.l10n.homeLoadFailed,
+                  description: context.l10n.homeLoadFailedBody,
+                  retryLabel: context.l10n.annRetry,
+                  onRetry: () => ref.invalidate(dashboardDataProvider),
+                );
+              },
+              data: (data) => _HomeBody(
+                data: data,
+                displayName: settings?.displayName,
+                avatarPath: settings?.avatarPath,
+                privacyMode: privacyMode,
+              ),
+            ),
+          )),
     );
   }
 
@@ -698,7 +703,11 @@ class _BlueZone extends ConsumerWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   stops: [0.0, heroShare, 1.0],
-                  colors: const [Colors.white, Colors.white, Colors.transparent],
+                  colors: const [
+                    Colors.white,
+                    Colors.white,
+                    Colors.transparent
+                  ],
                 ).createShader(bounds),
                 child: Container(
                   key: const ValueKey('home-blue-backdrop'),
@@ -809,7 +818,7 @@ class _BlueZone extends ConsumerWidget {
                 onPressed: () => context.push('/announcements'),
                 icon: const Icon(AppLucideIcons.bell,
                     color: Colors.white, size: 20))),
-        const _AddButton(),
+        const CoachAnchor(target: 'add', child: _AddButton()),
       ],
     );
   }
@@ -937,14 +946,14 @@ class _BlueZone extends ConsumerWidget {
           children: [
             LayoutBuilder(builder: (context, constraints) {
               final account = _accountSelector(context, ref);
-              final periods = FittedBox(
+              final periods = CoachAnchor(target: 'period', child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: _PeriodSegments(
                   selected: period,
                   onSelect: (value) =>
                       ref.read(heroPeriodProvider.notifier).state = value,
                 ),
-              );
+              ));
               if (MediaQuery.textScalerOf(context).scale(16) > 20) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1074,7 +1083,7 @@ class _BlueZone extends ConsumerWidget {
           '${Currency.label(context, selected.currency.toUpperCase())}';
     }
     // The shared selector chip every other screen uses for the account.
-    return GlassSelector(
+    return CoachAnchor(target: 'account', child: GlassSelector(
       onBlue: true,
       icon: AppLucideIcons.wallet,
       label: accountLabel,
@@ -1082,7 +1091,7 @@ class _BlueZone extends ConsumerWidget {
         HapticFeedback.selectionClick();
         context.push('/accounts');
       },
-    );
+    ));
   }
 
   Widget _heroTotals(BuildContext context, HeroPeriod period) {
@@ -1228,8 +1237,7 @@ class _QuickActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget action(IconData icon, String label, VoidCallback onTap) {
-      return Expanded(
-        child: Semantics(
+      final button = Semantics(
           button: true,
           label: label,
           excludeSemantics: true,
@@ -1256,8 +1264,9 @@ class _QuickActions extends StatelessWidget {
                       Colors.white.withValues(alpha: 0.85))),
             ],
           ),
-        ),
       );
+      return Expanded(child: icon == AppLucideIcons.clipboardPaste
+          ? CoachAnchor(target: 'paste', child: button) : button);
     }
 
     return Row(

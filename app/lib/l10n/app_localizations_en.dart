@@ -1133,7 +1133,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get coachDashboardPeriodBody =>
-      'The period selector changes every figure on the screen: day, week, month, year, or a custom range.';
+      'Choose day, week, or month to change the financial summary shown above.';
 
   @override
   String get coachDashboardInboxTitle => 'Smart Inbox';
@@ -6473,7 +6473,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get pasteAnalysisHowItWorks =>
-      'Messages are read on your device first. If needed, AI helps when Cloud and Smart Analysis are enabled.';
+      'Smart Analysis reads messages when Cloud and AI are enabled. Otherwise, Qirsh reads them on your device.';
 
   @override
   String get pasteReadOnDevice => 'Read on your device — AI was not needed.';
@@ -6926,4 +6926,46 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudResumeBody =>
       'Cloud Sync and Smart Analysis are paused after sign-out. Turn them on again to resume.';
+
+  @override
+  String get languageFirstTitle => 'Choose your language';
+
+  @override
+  String get languageFirstBody =>
+      'Choose how you would like to use Qirsh. You can change this later.';
+
+  @override
+  String get coachPasteTitle => 'Read a bank message';
+
+  @override
+  String get coachPasteBody =>
+      'Use Paste message here. In the + menu, choose Paste message to let Smart Analysis read it.';
+
+  @override
+  String get coachAccountTitle => 'Choose the account';
+
+  @override
+  String get coachAccountBody =>
+      'Choose which account you want to view. Its currency and figures follow your selection.';
+
+  @override
+  String get coachBudgetTitle => 'Set your first budget';
+
+  @override
+  String get coachBudgetBody =>
+      'Tap + to choose a spending limit, period and account. You can adjust it later.';
+
+  @override
+  String get coachBillsTitle => 'Track a bill';
+
+  @override
+  String get coachBillsBody =>
+      'Tap + to add a subscription or instalment. Set its amount and due date, then record payments from its details.';
+
+  @override
+  String get pasteSavedForAnalysis =>
+      'Message saved in Smart Inbox for analysis.';
+
+  @override
+  String get retryBankAnalysis => 'Retry smart analysis';
 }

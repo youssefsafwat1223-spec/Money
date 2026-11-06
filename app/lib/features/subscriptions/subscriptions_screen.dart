@@ -1,3 +1,4 @@
+import '../help/coach_marks.dart';
 
 import 'package:flutter/material.dart';
 import '../../domain/finance/money_format.dart';
@@ -70,176 +71,183 @@ class SubscriptionsScreen extends ConsumerWidget {
     final header = AppHeader(
       title: context.l10n.subsTitle,
       sectionPhoto: QirshSectionPhoto.bills,
-      action: _AddButton(onTap: () => BillFormSheet.show(
-        context, initialType: BillType.subscription)),
+      action: CoachAnchor(target: 'billAdd',
+          child: _AddButton(
+              onTap: () => BillFormSheet.show(context,
+                  initialType: BillType.subscription))),
     );
 
-    return billsAsync.when(
-      skipLoadingOnReload: true,
-      loading: () => Scaffold(
-        appBar: header,
-        body: const SkeletonList(rows: 4),
-      ),
-      error: (e, _) => Scaffold(
-        appBar: header,
-        body: SingleChildScrollView(child: AppErrorState(
-          title: context.l10n.txnError,
-          description: context.l10n.annTryAgainSoon,
-          retryLabel: context.l10n.startRetry,
-          onRetry: () => ref.invalidate(savedBillsProvider),
-        )),
-      ),
-      data: (bills) {
-        final subs =
-            bills.where((b) => b.type == BillType.subscription).toList();
-        final insts =
-            bills.where((b) => b.type == BillType.installment).toList();
-        final suggestions = suggestionsAsync.valueOrNull ?? [];
-        // The ad band's REAL pixel height, or zero when no ad is showing.
-        // `MeltSlice.height` is the gradient RANGE, not the box height, so a
-        // fixed share made the melt crawl through the ad band and then jump
-        // through the tab row — a visible crease. See reports_screen.dart.
-        final adExtent =
-            ref.watch(headerAdExtentProvider(AdPlacement.subscriptions));
-        final meltBelowTabs = adExtent + _tabBarHeight;
-        // MALI-064n: projected monthly recurring obligation (frequency-
-        // normalized, active subscriptions only) — the ONE canonical metric.
-        // Summed EXACTLY as Money in the base display currency (currency-
-        // isolated); converted to double only here at the display leaf.
-        final monthlyTotal = subscriptionMonthlyTotalMoney(subs, baseCur);
-        // UX-023 — the installment obligation as its OWN line, so the header's
-        // metric and the counters beneath it describe the same world.
-        //
-        // `monthlyEquivalentsTotalMoney` is deliberately filter-free ("the
-        // caller decides"), which is precisely the footgun that produced F-027
-        // when a caller forgot. The active filter is therefore explicit here
-        // rather than assumed.
-        final installmentMonthly = monthlyEquivalentsTotalMoney(
-          insts.where((b) => b.status == BillStatus.active),
-          baseCur,
-        );
-
-        return DefaultTabController(
-          length: 2,
-          child: Scaffold(
+    return FirstUseGuide(
+        id: CoachMarkIds.bills,
+        marks: billCoachMarks,
+        child: billsAsync.when(
+          skipLoadingOnReload: true,
+          loading: () => Scaffold(
             appBar: header,
-            body: SafeArea(
-              // The viewport starts below the status bar so the pinned tab
-              // bar never slides under the clock; the canvas header needs no
-              // colour behind the status bar (only Home's blue hero does).
-              top: false,
-              bottom: false,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerBoxIsScrolled) {
-                  return [
-                    SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          _BillsHeader(
-                            monthly: monthlyTotal,
-                            installmentMonthly: installmentMonthly,
-                            subsCount: subs.length,
-                            instsCount: insts.length,
-                            currency: Currency.label(context, baseCur),
-                            scopeAccountName: scopeAccount?.name,
-                          ),
-                          // IN THE HEADER, not in the tabs.
-                          //
-                          // Each tab body is its own ListView, so a banner
-                          // inside them would be two banners — and the second
-                          // tab the user opens would request, meet the static
-                          // 30-second per-placement throttle, and render an
-                          // empty slot for the rest of the visit. Here it is
-                          // ONE instance shared by both tabs, which survives a
-                          // tab switch and survives the header scrolling away.
-                          // All three behaviours are pinned in
-                          // banner_placement_mechanics_test.dart.
-                          //
-                          // No content gate. It used to require at least one
-                          // bill or installment; availability may no longer
-                          // depend on the user having either. The position is
-                          // unchanged — directly under the hero, above the tab
-                          // bar — which already satisfies the empty-state rule
-                          // (hero, then banner, then the tabs' own empty CTA).
-                          //
-                            // FULL BLEED melt behind the ad band. The banner
-                            // itself sits inside the gutter, so wrapping it
-                            // there left the page background showing down both
-                            // edges of the band.
-                            MeltSlice(
-                              height: adExtent,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.gutter),
-                                child: QirshAdBanner(
-                                    placement: AdPlacement.subscriptions),
+            body: const SkeletonList(rows: 4),
+          ),
+          error: (e, _) => Scaffold(
+            appBar: header,
+            body: SingleChildScrollView(
+                child: AppErrorState(
+              title: context.l10n.txnError,
+              description: context.l10n.annTryAgainSoon,
+              retryLabel: context.l10n.startRetry,
+              onRetry: () => ref.invalidate(savedBillsProvider),
+            )),
+          ),
+          data: (bills) {
+            final subs =
+                bills.where((b) => b.type == BillType.subscription).toList();
+            final insts =
+                bills.where((b) => b.type == BillType.installment).toList();
+            final suggestions = suggestionsAsync.valueOrNull ?? [];
+            // The ad band's REAL pixel height, or zero when no ad is showing.
+            // `MeltSlice.height` is the gradient RANGE, not the box height, so a
+            // fixed share made the melt crawl through the ad band and then jump
+            // through the tab row — a visible crease. See reports_screen.dart.
+            final adExtent =
+                ref.watch(headerAdExtentProvider(AdPlacement.subscriptions));
+            final meltBelowTabs = adExtent + _tabBarHeight;
+            // MALI-064n: projected monthly recurring obligation (frequency-
+            // normalized, active subscriptions only) — the ONE canonical metric.
+            // Summed EXACTLY as Money in the base display currency (currency-
+            // isolated); converted to double only here at the display leaf.
+            final monthlyTotal = subscriptionMonthlyTotalMoney(subs, baseCur);
+            // UX-023 — the installment obligation as its OWN line, so the header's
+            // metric and the counters beneath it describe the same world.
+            //
+            // `monthlyEquivalentsTotalMoney` is deliberately filter-free ("the
+            // caller decides"), which is precisely the footgun that produced F-027
+            // when a caller forgot. The active filter is therefore explicit here
+            // rather than assumed.
+            final installmentMonthly = monthlyEquivalentsTotalMoney(
+              insts.where((b) => b.status == BillStatus.active),
+              baseCur,
+            );
+
+            return DefaultTabController(
+              length: 2,
+              child: Scaffold(
+                appBar: header,
+                body: SafeArea(
+                  // The viewport starts below the status bar so the pinned tab
+                  // bar never slides under the clock; the canvas header needs no
+                  // colour behind the status bar (only Home's blue hero does).
+                  top: false,
+                  bottom: false,
+                  child: NestedScrollView(
+                    headerSliverBuilder: (context, innerBoxIsScrolled) {
+                      return [
+                        SliverToBoxAdapter(
+                          child: Column(
+                            children: [
+                              _BillsHeader(
+                                monthly: monthlyTotal,
+                                installmentMonthly: installmentMonthly,
+                                subsCount: subs.length,
+                                instsCount: insts.length,
+                                currency: Currency.label(context, baseCur),
+                                scopeAccountName: scopeAccount?.name,
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _TabBarDelegate(
-                        // iOS 26 style: floating glass capsules, no bar box.
-                        child: MeltSlice(
-                          height: _tabBarHeight,
-                        // Resumes where the ad band above it ended, so the
-                        // melt runs header → ad → tabs without a seam. Zero
-                        // when no ad is showing, which is the original
-                        // geometry exactly.
-                        startAt: adExtent,
-                          child: Container(
-                            height: _tabBarHeight,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
-                            child: Builder(
-                                builder: (context) {
-                                final controller =
-                                    DefaultTabController.of(context);
-                                return AnimatedBuilder(
-                                  animation: controller,
-                                  builder: (context, _) => AppPillTabBar(
-                                    tabs: [
-                                      context.l10n.subsTabSubs(subs.length),
-                                      context.l10n.subsTabInst(insts.length),
-                                    ],
-                                    selectedIndex: controller.index,
-                                    onSelected: controller.animateTo,
-                                  ),
-                                  );
-                                },
+                              // IN THE HEADER, not in the tabs.
+                              //
+                              // Each tab body is its own ListView, so a banner
+                              // inside them would be two banners — and the second
+                              // tab the user opens would request, meet the static
+                              // 30-second per-placement throttle, and render an
+                              // empty slot for the rest of the visit. Here it is
+                              // ONE instance shared by both tabs, which survives a
+                              // tab switch and survives the header scrolling away.
+                              // All three behaviours are pinned in
+                              // banner_placement_mechanics_test.dart.
+                              //
+                              // No content gate. It used to require at least one
+                              // bill or installment; availability may no longer
+                              // depend on the user having either. The position is
+                              // unchanged — directly under the hero, above the tab
+                              // bar — which already satisfies the empty-state rule
+                              // (hero, then banner, then the tabs' own empty CTA).
+                              //
+                              // FULL BLEED melt behind the ad band. The banner
+                              // itself sits inside the gutter, so wrapping it
+                              // there left the page background showing down both
+                              // edges of the band.
+                              MeltSlice(
+                                height: adExtent,
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.gutter),
+                                  child: QirshAdBanner(
+                                      placement: AdPlacement.subscriptions),
+                                ),
                               ),
+                            ],
                           ),
                         ),
-                      ),
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _TabBarDelegate(
+                            // iOS 26 style: floating glass capsules, no bar box.
+                            child: MeltSlice(
+                              height: _tabBarHeight,
+                              // Resumes where the ad band above it ended, so the
+                              // melt runs header → ad → tabs without a seam. Zero
+                              // when no ad is showing, which is the original
+                              // geometry exactly.
+                              startAt: adExtent,
+                              child: Container(
+                                height: _tabBarHeight,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.gutter,
+                                ),
+                                alignment: Alignment.center,
+                                child: Builder(
+                                  builder: (context) {
+                                    final controller =
+                                        DefaultTabController.of(context);
+                                    return AnimatedBuilder(
+                                      animation: controller,
+                                      builder: (context, _) => AppPillTabBar(
+                                        tabs: [
+                                          context.l10n.subsTabSubs(subs.length),
+                                          context.l10n
+                                              .subsTabInst(insts.length),
+                                        ],
+                                        selectedIndex: controller.index,
+                                        onSelected: controller.animateTo,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ];
+                    },
+                    // من غير padding هنا: الذوبان جوّه كل تبويب لازم يبقى كامل
+                    // العرض، والمسافات الجانبية جوّه القوايم نفسها.
+                    body: TabBarView(
+                      children: [
+                        _SubscriptionsTab(
+                          meltStartAt: meltBelowTabs,
+                          bills: subs,
+                          suggestions: suggestions,
+                          baseCurrency: baseCur,
+                        ),
+                        _InstallmentsTab(
+                          meltStartAt: meltBelowTabs,
+                          bills: insts,
+                        ),
+                      ],
                     ),
-                  ];
-                },
-                // من غير padding هنا: الذوبان جوّه كل تبويب لازم يبقى كامل
-                // العرض، والمسافات الجانبية جوّه القوايم نفسها.
-                body: TabBarView(
-                  children: [
-                    _SubscriptionsTab(
-                      meltStartAt: meltBelowTabs,
-                      bills: subs,
-                      suggestions: suggestions,
-                      baseCurrency: baseCur,
-                    ),
-                    _InstallmentsTab(
-                      meltStartAt: meltBelowTabs,
-                      bills: insts,
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
-      },
-    );
+            );
+          },
+        ));
   }
 }
 
@@ -547,7 +555,8 @@ class _SubscriptionCard extends StatelessWidget {
                         children: [
                           Icon(dueIcon, size: 13, color: dueColor),
                           const SizedBox(width: 4),
-                          Flexible(child: Text(
+                          Flexible(
+                              child: Text(
                             '$freqLabel · $dueLabel',
                             style: AppTypography.caption(dueColor),
                           )),
@@ -570,7 +579,8 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     if (bill.type == BillType.subscription)
                       Text(
-                        context.l10n.subsPerYearApprox(Formatters.amount(annualEquivalent(bill))),
+                        context.l10n.subsPerYearApprox(
+                            Formatters.amount(annualEquivalent(bill))),
                         style: AppTypography.caption(c.textLight),
                       ),
                   ],
@@ -647,7 +657,8 @@ class _SuggestionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    context.l10n.txnRecurredMonths((item.monthsSeen as num).toInt()),
+                    context.l10n
+                        .txnRecurredMonths((item.monthsSeen as num).toInt()),
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
@@ -659,8 +670,8 @@ class _SuggestionCard extends StatelessWidget {
               children: [
                 Text(
                   context.l10n.txnEstPerMonth(
-                          formatMoney(item.estimatedAmountMoney as Money),
-                          Currency.label(context, baseCurrency)),
+                      formatMoney(item.estimatedAmountMoney as Money),
+                      Currency.label(context, baseCurrency)),
                   style: AppTypography.caption(c.textMain).copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -763,7 +774,9 @@ class _InstallmentsTab extends StatelessWidget {
                       runSpacing: AppSpacing.s2,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        _DebtStat(label: context.l10n.subsRunningInst, value: '$activeCount'),
+                        _DebtStat(
+                            label: context.l10n.subsRunningInst,
+                            value: '$activeCount'),
                         if (nearest != null) ...[
                           _DebtStat(
                             label: context.l10n.subsNearestInst,
@@ -911,7 +924,8 @@ class _InstallmentCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    context.l10n.txnPaidOfTotal(bill.paidCount ?? 0, bill.totalInstallments ?? 0),
+                    context.l10n.txnPaidOfTotal(
+                        bill.paidCount ?? 0, bill.totalInstallments ?? 0),
                     style: AppTypography.caption(c.textLight),
                   ),
                   const Spacer(),
@@ -969,7 +983,8 @@ class _InstallmentCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                         child: Text(
-                          context.l10n.txnInterestRate((bill.interestRate! * 100).toStringAsFixed(1)),
+                          context.l10n.txnInterestRate(
+                              (bill.interestRate! * 100).toStringAsFixed(1)),
                           style: AppTypography.caption(c.accent)
                               .copyWith(fontWeight: FontWeight.bold),
                         ),

@@ -1,3 +1,6 @@
+import '../common/top_banner.dart';
+import '../../core/session/app_session.dart';
+import '../../domain/entities/captured_message.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -2177,6 +2180,53 @@ class _SmartInboxSheet extends ConsumerWidget {
   }
 }
 
+class _RetryInboxAnalysis extends ConsumerStatefulWidget {
+  const _RetryInboxAnalysis({required this.item});
+  final SmartInboxItemEntity item;
+
+  @override
+  ConsumerState<_RetryInboxAnalysis> createState() => _RetryInboxAnalysisState();
+}
+
+class _RetryInboxAnalysisState extends ConsumerState<_RetryInboxAnalysis> {
+  bool _running = false;
+
+  Future<void> _retry() async {
+    final item = widget.item;
+    final authority = AppSession.instance.captureLocalWorkAuthority();
+    if (_running || authority == null || item.body == null) return;
+    setState(() => _running = true);
+    try {
+      final result = await ref.read(ingestCapturedMessageUseCaseProvider)
+          .fromCapturedMessage(CapturedMessage(
+            text: item.body!,
+            source: CapturedMessageSource.manualPaste,
+            receivedAt: item.createdAt,
+          ));
+      if (!mounted || !authority.isCurrent) return;
+      if (result.transactionId != null) {
+        await ref.read(smartInboxRepositoryProvider).resolve(item.id);
+        if (!mounted) return;
+        ref.invalidate(smartInboxItemsProvider);
+      } else {
+        showTopInfo(context, context.l10n.pasteSavedForAnalysis);
+      }
+    } catch (_) {
+      if (mounted && authority.isCurrent) {
+        showTopInfo(context, context.l10n.pasteSavedForAnalysis);
+      }
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+    onPressed: _running ? null : _retry,
+    child: Text(_running ? context.l10n.pasteAnalyse : context.l10n.retryBankAnalysis),
+  );
+}
+
 class SmartInboxCard extends ConsumerWidget {
   const SmartInboxCard({super.key, required this.item});
   final SmartInboxItemEntity item;
@@ -2223,6 +2273,8 @@ class SmartInboxCard extends ConsumerWidget {
                   },
                   child: Text(context.l10n.cesManualEntry),
                 ),
+                if (smartAnalysisOn && item.body?.isNotEmpty == true)
+                  _RetryInboxAnalysis(item: item),
                 if (settings != null && !smartAnalysisOn)
                   TextButton(
                     onPressed: () =>

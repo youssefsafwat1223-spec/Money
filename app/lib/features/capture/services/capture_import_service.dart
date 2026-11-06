@@ -105,7 +105,9 @@ class CaptureImportService {
     required String? Function() sessionUid,
     required Future<String?> Function() replicaOwnerUid,
     required OwnershipGuard ownershipGuard,
-  })  : _queue = queue,
+    Future<bool> Function()? aiPrimarySelected,
+  })  : _aiPrimarySelected = aiPrimarySelected,
+        _queue = queue,
         _server = server,
         _sync = captureSyncService,
         _receipts = receipts,
@@ -114,6 +116,7 @@ class CaptureImportService {
         _replicaOwnerUid = replicaOwnerUid,
         _guard = ownershipGuard;
 
+  final Future<bool> Function()? _aiPrimarySelected;
   final CaptureImportQueue _queue;
   final CaptureServerPort _server;
   final CaptureSyncService _sync;
@@ -349,6 +352,8 @@ class CaptureImportService {
       );
     }
 
+    final aiPrimary = item.localOnly != true &&
+        (await _aiPrimarySelected?.call() ?? false);
     var local = item.localOnly == true ||
         fetchStatus == CaptureFetchStatus.notConfigured ||
         fetchStatus == CaptureFetchStatus.refused;
@@ -370,6 +375,30 @@ class CaptureImportService {
     }
 
     final result = results[id];
+    if (aiPrimary) {
+      if (result?.parsed['parserSource'] == 'ai_ignored') {
+        await _removeNative(owner, id);
+        acks.add(id);
+        return CaptureImportItem(id: id, path: CaptureImportPath.server,
+            message: item, committedTransactions: const []);
+      }
+      if (result != null && _isProcessed(result) && _validates(result, item)) {
+        return _importFromServer(owner, item, id, result, acks);
+      }
+      if (result?.state == 'processing' || result?.state == 'retryable' ||
+          fetchStatus == CaptureFetchStatus.unavailable) {
+        return null;
+      }
+      if (result == null && item.status == 'pendingSend' && !local) return null;
+      // No guessed financial transaction: retain the full native message in
+      // Smart Inbox atomically before acknowledging the native receipt.
+      await _sync.persistUnprocessableCapture(item,
+          isOwnerCurrent: () => _stillOwner(owner));
+      await _removeNative(owner, id);
+      if (result != null) acks.add(id);
+      return CaptureImportItem(id: id, path: CaptureImportPath.server,
+          message: item, committedTransactions: const []);
+    }
     if (!local) {
       if (result == null) {
         // Consumed / expired / never stored. If the fetch itself failed we know

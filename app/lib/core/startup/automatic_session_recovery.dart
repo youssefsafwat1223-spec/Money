@@ -597,6 +597,9 @@ class AutomaticSessionRecovery {
           }
         }
         coordinator.releaseAsrExclusion(r.opId);
+        // Identity, writable scope and ordinary admission are now verified.
+        // Remaining durable cleanup must not keep the usable home hidden.
+        _finishPresentation();
         await coordinator.completeAdoption(r);
         await release();
         return _stop('recovered', AsrOutcome.recovered);
@@ -630,6 +633,9 @@ class AutomaticSessionRecovery {
       }
       // Ordinary admission is established: the exclusion ends here (§4.6(1)).
       coordinator.releaseAsrExclusion(r.opId);
+      // Cloud successor settlement can wait on native I/O after the recovered
+      // account is already usable. Keep its cleanup/fences, release only UI.
+      _finishPresentation();
       await _finalize(ctx, p);
       await release();
       return _stop('recovered', AsrOutcome.recovered);

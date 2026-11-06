@@ -344,6 +344,7 @@ class AddTransactionUseCase {
     DedupStore? dedupStore,
     AiParserClient? aiClient,
     Future<bool> Function()? loadAiConsent,
+    Future<bool> Function()? aiPrimarySelected,
     String? installId,
     Future<String> Function()? loadInstallId,
     ResolveBankForSenderUseCase? resolveBankForSenderUseCase,
@@ -392,6 +393,7 @@ class AddTransactionUseCase {
         _dedupStore = dedupStore,
         _aiClient = aiClient,
         _loadAiConsent = loadAiConsent,
+        _aiPrimarySelected = aiPrimarySelected,
         _installId = installId,
         _loadInstallId = loadInstallId,
         _resolveBankForSenderUseCase = resolveBankForSenderUseCase,
@@ -650,6 +652,7 @@ class AddTransactionUseCase {
   final DedupStore? _dedupStore;
   final AiParserClient? _aiClient;
   final Future<bool> Function()? _loadAiConsent;
+  final Future<bool> Function()? _aiPrimarySelected;
   final String? _installId;
   final Future<String> Function()? _loadInstallId;
   final ResolveBankForSenderUseCase? _resolveBankForSenderUseCase;
@@ -741,12 +744,19 @@ class AddTransactionUseCase {
     final transactionShaped = parseResult.isTransaction ||
         parseResult.amountDetected ||
         aiFirstAttempt.response != null;
-    final intentionallyIgnored = wasIgnored ||
+    final aiPrimary = !onDeviceOnly &&
+        !wasIgnored &&
+        ((await _aiPrimarySelected?.call() ?? false) ||
+            (_aiClient is PrimaryAiParserClient &&
+                aiFirstAttempt.sanitizedSms != null));
+    final aiSaysNotTransaction = aiPrimary &&
+        aiFirstAttempt.response == null && aiFirstAttempt.failureReason == null;
+    final intentionallyIgnored = wasIgnored || aiSaysNotTransaction ||
         (transactionShaped &&
             ParserEngine.isIgnoredMessage(rawMessage,
                 senderId: senderId, bankProfiles: bankProfiles));
     final droppedByParser =
-        !intentionallyIgnored && (isLikelyBank || transactionShaped);
+        !intentionallyIgnored && (aiPrimary || isLikelyBank || transactionShaped);
 
     BankDiscoveryResult? discovery;
     if (!onDeviceOnly) {
@@ -759,7 +769,10 @@ class AddTransactionUseCase {
       );
     }
 
-    final localParsed = localAccepted ? parseResult.transaction : null;
+    // An eligible production AI request owns the result even when the local
+    // parser found a different amount/category. It is never replaced on failure.
+    final localParsed =
+        !aiPrimary && localAccepted ? parseResult.transaction : null;
     if (localParsed != null) {
       await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
     }

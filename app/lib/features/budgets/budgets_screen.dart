@@ -1,3 +1,4 @@
+import '../help/coach_marks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,8 +50,11 @@ class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) =>
-      PlanningRepairGate(child: _buildScreen(context, ref));
+  Widget build(BuildContext context, WidgetRef ref) => PlanningRepairGate(
+      child: FirstUseGuide(
+          id: CoachMarkIds.budgets,
+          marks: budgetCoachMarks,
+          child: _buildScreen(context, ref)));
 
   Widget _buildScreen(BuildContext context, WidgetRef ref) {
     final async = ref.watch(budgetsViewProvider);
@@ -63,7 +67,9 @@ class BudgetsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 4),
-        error: (error, _) => SafeArea(child: SingleChildScrollView(child: AppErrorState(
+        error: (error, _) => SafeArea(
+            child: SingleChildScrollView(
+                child: AppErrorState(
           title: context.l10n.bdgError,
           description: context.l10n.annTryAgainSoon,
           retryLabel: context.l10n.startRetry,
@@ -141,14 +147,16 @@ class BudgetsScreen extends ConsumerWidget {
             // test/harness/nested_refresh_repro_test.dart. The other four
             // RefreshIndicators in the app do not wrap a NestedScrollView.
             notificationPredicate: (n) => n.depth == 1,
-            child: QirshSectionBackdrop(child: SafeArea(
+            child: QirshSectionBackdrop(
+                child: SafeArea(
               // Keep the pinned tabs below the status bar while the compact
               // section cover scrolls with the existing header content.
               bottom: false,
               child: NestedScrollView(
                 headerSliverBuilder: (context, innerBoxIsScrolled) {
                   return [
-                    SliverToBoxAdapter(child: CalmPageHeader(
+                    SliverToBoxAdapter(
+                        child: CalmPageHeader(
                       sectionPhoto: tab == 2
                           ? QirshSectionPhoto.goals
                           : QirshSectionPhoto.budgets,
@@ -161,10 +169,14 @@ class BudgetsScreen extends ConsumerWidget {
                         _ => context.l10n.bdgTabBudgets,
                       },
                       subtitle: context.l10n.bdgOverviewSubtitle,
-                      leading: Navigator.of(context).canPop() ? const BackButton() : null,
-                      trailing: _AddButton(onTap: () => tab == 2
-                        ? GoalFormScreen.showSheet(context)
-                        : BudgetFormScreen.showSheet(context)),
+                      leading: Navigator.of(context).canPop()
+                          ? const BackButton()
+                          : null,
+                      trailing: CoachAnchor(target: 'budgetAdd',
+                          child: _AddButton(
+                              onTap: () => tab == 2
+                                  ? GoalFormScreen.showSheet(context)
+                                  : BudgetFormScreen.showSheet(context))),
                     )),
                     SliverPersistentHeader(
                       pinned: true,
@@ -213,12 +225,20 @@ class BudgetsScreen extends ConsumerWidget {
                             saved: saved,
                             target: target,
                             progress: progress,
-                            goalsCount: displayGoals.where((goal) => goal.status == 'active').length,
-                            daysLeft: budgetEntries.isNotEmpty && budgetEntries.every(
-                              (entry) => entry.periodEnd.isAtSameMomentAs(budgetEntries.first.periodEnd))
-                              ? DateUtils.dateOnly(budgetEntries.first.periodEnd.toLocal())
-                                  .difference(DateUtils.dateOnly(DateTime.now())).inDays.clamp(0, 3660)
-                              : null,
+                            goalsCount: displayGoals
+                                .where((goal) => goal.status == 'active')
+                                .length,
+                            daysLeft: budgetEntries.isNotEmpty &&
+                                    budgetEntries.every((entry) =>
+                                        entry.periodEnd.isAtSameMomentAs(
+                                            budgetEntries.first.periodEnd))
+                                ? DateUtils.dateOnly(
+                                        budgetEntries.first.periodEnd.toLocal())
+                                    .difference(
+                                        DateUtils.dateOnly(DateTime.now()))
+                                    .inDays
+                                    .clamp(0, 3660)
+                                : null,
                             budgetsCount: budgetEntries.length,
                             safeCount: safeCount,
                             warningCount: warningCount,
@@ -256,11 +276,11 @@ class BudgetsScreen extends ConsumerWidget {
                             currencyLabel: currencyLabel,
                             showGlobalAccountLabel: false,
                             emptyTitle: context.l10n.bdgEmptyBudgetsTitle,
-                            emptySubtitle:
-                                context.l10n.bdgEmptyBudgetsBody,
+                            emptySubtitle: context.l10n.bdgEmptyBudgetsBody,
                           ),
                           const SizedBox(height: AppSpacing.s3),
-                          _AllocateIncomeButton(onTap: () => AllocateIncomeSheet.show(context)),
+                          _AllocateIncomeButton(
+                              onTap: () => AllocateIncomeSheet.show(context)),
                         ] else if (tab == 1) ...[
                           _HistoryPeriodFilterRow(ref: ref),
                           const SizedBox(height: AppSpacing.s2),
@@ -274,11 +294,11 @@ class BudgetsScreen extends ConsumerWidget {
                         ] else ...[
                           if (data.goals.isEmpty)
                             AppEmptyState(
-                              illustration: const QirshIllustration(name: 'savings', width: 210, height: 158),
+                              illustration: const QirshIllustration(
+                                  name: 'savings', width: 210, height: 158),
                               icon: AppLucideIcons.target,
                               title: context.l10n.bdgEmptyGoalsTitle,
-                              subtitle:
-                                  context.l10n.bdgEmptyGoalsBody,
+                              subtitle: context.l10n.bdgEmptyGoalsBody,
                               primaryLabel: context.l10n.bdgAddGoal,
                               onPrimary: () =>
                                   GoalFormScreen.showSheet(context),
@@ -311,11 +331,11 @@ class BudgetsScreen extends ConsumerWidget {
     if (entries.isEmpty) {
       return [
         AppEmptyState(
-          illustration: const QirshIllustration(name: 'budget', width: 210, height: 158),
+          illustration:
+              const QirshIllustration(name: 'budget', width: 210, height: 158),
           icon: AppLucideIcons.history,
           title: context.l10n.bdgEmptyHistoryTitle,
-          subtitle:
-              context.l10n.bdgEmptyHistoryBody,
+          subtitle: context.l10n.bdgEmptyHistoryBody,
           primaryLabel: context.l10n.bdgAddBudget,
           onPrimary: () => BudgetFormScreen.showSheet(context),
         ),
@@ -375,7 +395,8 @@ class BudgetsScreen extends ConsumerWidget {
     if (entries.isEmpty) {
       return [
         AppEmptyState(
-          illustration: const QirshIllustration(name: 'budget', width: 210, height: 158),
+          illustration:
+              const QirshIllustration(name: 'budget', width: 210, height: 158),
           icon: AppLucideIcons.pieChart,
           title: emptyTitle,
           subtitle: emptySubtitle,
@@ -394,7 +415,8 @@ class BudgetsScreen extends ConsumerWidget {
             showGlobalLabel: showGlobalAccountLabel,
             globalLabel: context.l10n.budgetsAllAccounts,
           ),
-          currencyLabel: _entryCurrencyLabel(context, data, entry, currencyLabel),
+          currencyLabel:
+              _entryCurrencyLabel(context, data, entry, currencyLabel),
           onTap: () => BudgetFormScreen.showSheet(
             context,
             budgetId: entry.budget.id,
@@ -624,21 +646,29 @@ class _BudgetsHeader extends StatelessWidget {
     };
     final metrics = isGoals
         ? [
-            CalmMetric(label: context.l10n.bdgStatActiveGoals, value: '$goalsCount'),
-            CalmMetric(label: context.l10n.bdgStatProgress, value: '$progress%'),
-            CalmMetric(label: context.l10n.bdgStatTargetSavings, value: formatMoney(target)),
+            CalmMetric(
+                label: context.l10n.bdgStatActiveGoals, value: '$goalsCount'),
+            CalmMetric(
+                label: context.l10n.bdgStatProgress, value: '$progress%'),
+            CalmMetric(
+                label: context.l10n.bdgStatTargetSavings,
+                value: formatMoney(target)),
           ]
         : isAllLog
             ? [
-                CalmMetric(label: context.l10n.bdgStateSafeF, value: '$safeCount'),
-                CalmMetric(label: context.l10n.bdgStateNear, value: '$warningCount'),
-                CalmMetric(label: context.l10n.bdgStateOverF, value: '$overCount'),
+                CalmMetric(
+                    label: context.l10n.bdgStateSafeF, value: '$safeCount'),
+                CalmMetric(
+                    label: context.l10n.bdgStateNear, value: '$warningCount'),
+                CalmMetric(
+                    label: context.l10n.bdgStateOverF, value: '$overCount'),
               ]
             : [
-                CalmMetric(label: context.l10n.bdgBudgetsWord, value: '$budgetsCount'),
-                CalmMetric(label: context.l10n.bdgUsageRate, value: '$usedRatio%'),
                 CalmMetric(
-                    label: context.l10n.bdgOver, value: '$overCount'),
+                    label: context.l10n.bdgBudgetsWord, value: '$budgetsCount'),
+                CalmMetric(
+                    label: context.l10n.bdgUsageRate, value: '$usedRatio%'),
+                CalmMetric(label: context.l10n.bdgOver, value: '$overCount'),
               ];
     return CalmPageHeader(
       showTitle: false,
@@ -646,19 +676,20 @@ class _BudgetsHeader extends StatelessWidget {
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
       title: title,
-      photo: isAllLog ? null : isGoals ? QirshPhoto.goals : QirshPhoto.wallet,
+      photo: isAllLog
+          ? null
+          : isGoals
+              ? QirshPhoto.goals
+              : QirshPhoto.wallet,
       subtitle: totalLabel,
-      leading: Navigator.of(context).canPop()
-          ? const BackButton()
-          : null,
+      leading: Navigator.of(context).canPop() ? const BackButton() : null,
       trailing: _AddButton(onTap: onAdd),
-      amount: isAllLog
-          ? '$budgetsCount'
-          : formatMoney(isGoals ? saved : limit),
-      amountFootnote: isGoals || isAllLog ? null :
-          '${context.l10n.bdgActualSpend} ${formatMoney(usedAmount)} · '
-          '${context.l10n.bdgRemaining} ${formatMoney(limit - usedAmount)}'
-          '${daysLeft == null ? '' : ' · ${context.l10n.goalDaysLeft(daysLeft!)}'}',
+      amount: isAllLog ? '$budgetsCount' : formatMoney(isGoals ? saved : limit),
+      amountFootnote: isGoals || isAllLog
+          ? null
+          : '${context.l10n.bdgActualSpend} ${formatMoney(usedAmount)} · '
+              '${context.l10n.bdgRemaining} ${formatMoney(limit - usedAmount)}'
+              '${daysLeft == null ? '' : ' · ${context.l10n.goalDaysLeft(daysLeft!)}'}',
       currency: isAllLog ? context.l10n.bdgBudgetWord : currencyLabel,
       metrics: metrics,
     );
@@ -707,54 +738,97 @@ class _BudgetCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          RingProgress(value: progress, size: 54, strokeWidth: 5,
-            color: progressColor, trackColor: c.surface2,
-            child: Text('$percent%', style: AppTypography.custom(size: 12,
-              weight: FontWeight.w700, height: 1.2, color: c.textPrimary))),
+          RingProgress(
+              value: progress,
+              size: 54,
+              strokeWidth: 5,
+              color: progressColor,
+              trackColor: c.surface2,
+              child: Text('$percent%',
+                  style: AppTypography.custom(
+                      size: 12,
+                      weight: FontWeight.w700,
+                      height: 1.2,
+                      color: c.textPrimary))),
           const SizedBox(width: 12),
-          Expanded(child: Column(
+          Expanded(
+              child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(isGeneral ? context.l10n.bdgAllExpenses : category?.name ?? context.l10n.bdgCategory,
-                style: AppTypography.custom(size: 14.5, weight: FontWeight.w600,
-                  height: 1.35, color: c.textPrimary)),
+              Text(
+                  isGeneral
+                      ? context.l10n.bdgAllExpenses
+                      : category?.name ?? context.l10n.bdgCategory,
+                  style: AppTypography.custom(
+                      size: 14.5,
+                      weight: FontWeight.w600,
+                      height: 1.35,
+                      color: c.textPrimary)),
               const SizedBox(height: 4),
-              Text('${formatMoney(entry.spent)} / ${formatMoney(entry.budget.amountMoney)} · $periodLabel',
-                style: AppTypography.custom(size: 11, weight: FontWeight.w400,
-                  height: 1.4, color: c.textMuted)),
-              if (accountName.isNotEmpty) Text(accountName,
-                style: AppTypography.custom(size: 10, weight: FontWeight.w400,
-                  height: 1.3, color: c.textMuted)),
+              Text(
+                  '${formatMoney(entry.spent)} / ${formatMoney(entry.budget.amountMoney)} · $periodLabel',
+                  style: AppTypography.custom(
+                      size: 11,
+                      weight: FontWeight.w400,
+                      height: 1.4,
+                      color: c.textMuted)),
+              if (accountName.isNotEmpty)
+                Text(accountName,
+                    style: AppTypography.custom(
+                        size: 10,
+                        weight: FontWeight.w400,
+                        height: 1.3,
+                        color: c.textMuted)),
             ],
           )),
           const SizedBox(width: 6),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: progressColor.withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(999)),
-              child: Text(statusLabel, style: AppTypography.custom(size: 10,
-                weight: FontWeight.w500, height: 1.3, color: progressColor))),
+            Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                    color: progressColor.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(999)),
+                child: Text(statusLabel,
+                    style: AppTypography.custom(
+                        size: 10,
+                        weight: FontWeight.w500,
+                        height: 1.3,
+                        color: progressColor))),
             const SizedBox(height: 4),
-            Text('${formatMoney(isOver ? -entry.remaining : entry.remaining)} ${isOver ? context.l10n.bdgOver : context.l10n.bdgRemaining}',
-              style: AppTypography.custom(size: 11, weight: FontWeight.w600,
-                height: 1.3, color: isOver ? c.danger : c.textPrimary)),
-            if (onDelete != null) SizedBox(height: 24, width: 30,
-              child: IconButton(padding: EdgeInsets.zero,
-                tooltip: context.l10n.setDelete,
-                icon: Icon(AppLucideIcons.moreVertical, color: c.textMuted, size: 17),
-                onPressed: () async {
-                  final value = await showGlassActions<String>(context: context,
-                    actions: [GlassAction(value: 'delete', label: context.l10n.setDelete,
-                      icon: AppLucideIcons.trash2, destructive: true)]);
-                  if (value == 'delete') onDelete?.call();
-                })),
+            Text(
+                '${formatMoney(isOver ? -entry.remaining : entry.remaining)} ${isOver ? context.l10n.bdgOver : context.l10n.bdgRemaining}',
+                style: AppTypography.custom(
+                    size: 11,
+                    weight: FontWeight.w600,
+                    height: 1.3,
+                    color: isOver ? c.danger : c.textPrimary)),
+            if (onDelete != null)
+              SizedBox(
+                  height: 24,
+                  width: 30,
+                  child: IconButton(
+                      padding: EdgeInsets.zero,
+                      tooltip: context.l10n.setDelete,
+                      icon: Icon(AppLucideIcons.moreVertical,
+                          color: c.textMuted, size: 17),
+                      onPressed: () async {
+                        final value = await showGlassActions<String>(
+                            context: context,
+                            actions: [
+                              GlassAction(
+                                  value: 'delete',
+                                  label: context.l10n.setDelete,
+                                  icon: AppLucideIcons.trash2,
+                                  destructive: true)
+                            ]);
+                        if (value == 'delete') onDelete?.call();
+                      })),
           ]),
         ],
       ),
     );
   }
-
 }
 
 class _MonthHeader extends StatelessWidget {
@@ -808,7 +882,9 @@ class _BudgetHistoryRow extends StatelessWidget {
       BudgetPeriod.monthly => context.l10n.bdgFilterMonthly,
       BudgetPeriod.yearly => context.l10n.bdgFilterYearly,
     };
-    final title = isGeneral ? context.l10n.bdgAllExpenses : category?.name ?? context.l10n.bdgCategory;
+    final title = isGeneral
+        ? context.l10n.bdgAllExpenses
+        : category?.name ?? context.l10n.bdgCategory;
     final dateLabel = _budgetPeriodDateLabel(entry, context);
     final subtitle = history.isCurrent
         ? context.l10n.bdgPeriodSubtitleLive(periodLabel, dateLabel)
@@ -822,7 +898,8 @@ class _BudgetHistoryRow extends StatelessWidget {
     final Color resultColor;
     final IconData? resultIcon;
     if (history.isCurrent) {
-      resultLabel = isOver ? context.l10n.bdgStateOverF : context.l10n.bdgRemaining;
+      resultLabel =
+          isOver ? context.l10n.bdgStateOverF : context.l10n.bdgRemaining;
       resultAmount = isOver ? -entry.remaining : entry.remaining;
       resultColor = isOver ? c.danger : c.textSecondary;
       resultIcon = null;
@@ -1087,7 +1164,9 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Container(width: 1, height: 40, color: c.border),
                   Expanded(
                     child: _BudgetAmountTile(
-                      label: isOver ? context.l10n.bdgOver : context.l10n.bdgRemaining,
+                      label: isOver
+                          ? context.l10n.bdgOver
+                          : context.l10n.bdgRemaining,
                       amount: isOver ? -entry.remaining : entry.remaining,
                       currencyLabel: currencyLabel,
                       color: isOver ? c.danger : c.success,
@@ -1141,7 +1220,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Text(
                     history.transactions.length > _kPeriodTransactionLimit
                         ? context.l10n.bdgLatestOfTotal(
-                            _kPeriodTransactionLimit, history.transactions.length)
+                            _kPeriodTransactionLimit,
+                            history.transactions.length)
                         : '${history.transactions.length}',
                     style: AppTypography.caption(c.textSecondary),
                   ),
@@ -1295,8 +1375,7 @@ class _GoalPlannerCard extends StatelessWidget {
     // of its target read as complete.
     final target = goal.targetMoney;
     final savedMinor = goal.savedMoney.minorUnits;
-    final progress =
-        target.isZero ? 0.0 : savedMinor / target.minorUnits;
+    final progress = target.isZero ? 0.0 : savedMinor / target.minorUnits;
     final percent = (progress * 100).round();
     final remainingMinor = target.minorUnits - savedMinor;
     final remaining =
@@ -1333,7 +1412,8 @@ class _GoalPlannerCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           if (remaining.isZero)
-            Text(context.l10n.bdgGoalDone, style: AppTypography.caption(c.success))
+            Text(context.l10n.bdgGoalDone,
+                style: AppTypography.caption(c.success))
           else
             Row(
               children: [

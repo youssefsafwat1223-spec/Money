@@ -41,7 +41,7 @@ function appGetterReads(src, file) {
     const receiver = receiverMatch && !before.slice(0, receiverMatch.index).trimEnd().endsWith(".")
       ? receiverMatch[1] : null;
     const block = before.slice(before.lastIndexOf("{") + 1);
-    const localPreferences = receiver && m[1] !== "getJson" && new RegExp(
+    const localPreferences = receiver && !block.includes("}") && m[1] !== "getJson" && new RegExp(
       `(?:^|[;\\n])\\s*final\\s+${receiver}\\s*=\\s*await\\s+SharedPreferences\\.getInstance\\(\\s*\\)\\s*;`,
     ).test(block);
     if (localPreferences) continue;
@@ -138,6 +138,20 @@ test("a preferences binding in another block cannot hide a dynamic flag read", (
     }
   `, "fixture.dart");
   assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:dynamicKey"]);
+});
+
+test("a preferences binding in a closed nested block cannot hide the outer flag receiver", () => {
+  const reads = appGetterReads(`
+    Future<void> read(FeatureFlagService prefs) async {
+      {
+        final prefs = await SharedPreferences.getInstance();
+        prefs.getString(localKey);
+      }
+      return prefs.getString(remoteKey);
+    }
+  `, "fixture.dart");
+  assert.deepEqual([...reads.keys], []);
+  assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:remoteKey"]);
 });
 
 test("a same-named object member is not the local preferences receiver", () => {

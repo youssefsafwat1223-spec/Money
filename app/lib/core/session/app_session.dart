@@ -504,10 +504,21 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Called only before bootstrap on a positively identified new installation.
   /// These are onboarding UI flags, never auth, owner, consent or key material.
   Future<void> resetInstallPresentation() async {
+    _languageChoiceMade = false;
     for (final key in [_kDone, _kWelcomeManifestoSeen, _kCoachMarksSeen,
       _kCurrentAccount, _kCompletedAccounts, 'app_theme_mode']) {
       await _storage.delete(key: key);
     }
+  }
+
+  bool _languageChoiceMade = false;
+  bool get hasChosenOnboardingLanguage => hasSeenWelcomeManifesto ||
+      _languageChoiceMade || (_installPresentation?.languageChosen ?? false);
+
+  Future<void> markOnboardingLanguageChosen() async {
+    await _installPresentation?.chooseLanguage();
+    _languageChoiceMade = true;
+    notifyListeners();
   }
 
   bool _welcomeManifestoSeen = false;
@@ -4965,6 +4976,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     email = null;
     _onboardingDone = false;
     _welcomeManifestoSeen = false;
+    _languageChoiceMade = false;
     _currentAccountKey = null;
     _completedAccountKeys.clear();
     _unresolvedOwnerUid = null;

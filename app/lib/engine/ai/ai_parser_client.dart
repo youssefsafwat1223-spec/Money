@@ -63,7 +63,11 @@ abstract class AiParserClient {
   });
 }
 
-class SupabaseAiParserClient implements AiParserClient {
+/// Production extraction is AI-primary; legacy/fake clients retain their
+/// existing policy unless they explicitly implement this capability.
+abstract class PrimaryAiParserClient implements AiParserClient {}
+
+class SupabaseAiParserClient implements PrimaryAiParserClient {
   SupabaseAiParserClient({
     required String edgeFunctionUrl,
     required Future<String?> Function() getAnonJwt,
@@ -105,8 +109,11 @@ class SupabaseAiParserClient implements AiParserClient {
         'device_secret': deviceSecret,
       'request_id': requestId,
       'schema_version': 1,
+      'analysis_mode': 'ai_primary_v1',
     });
-    // Up to 2 attempts: cold starts / transient 5xx on the edge function are
+    // Up to 2 HTTP attempts with the SAME request id. The server owns bounded
+    // provider retries/repair; a replay retrieves its result, never re-pays.
+    // Cold starts / transient 5xx on the edge function are
     // common (e.g. a 502 then a 200), so retry once before giving up. The
     // per-attempt timeout guarantees we never hang.
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -120,7 +127,7 @@ class SupabaseAiParserClient implements AiParserClient {
               },
               body: body,
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 45));
 
         if (response.statusCode == 200) {
           final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -130,16 +137,30 @@ class SupabaseAiParserClient implements AiParserClient {
           if (json['amount'] == null || json['currency'] == null) {
             throw const AiParseException('missing_amount_or_currency');
           }
-          return AiParseResponse.fromJson(json);
+          final parsed = AiParseResponse.fromJson(json);
+          if (parsed.modelUsed?.endsWith('+fallback') == true) {
+            throw const AiParseException('ai_deferred');
+          }
+          return parsed;
         }
-        final transient = response.statusCode == 502 ||
-            response.statusCode == 503 ||
-            response.statusCode == 504;
+        Map<String, dynamic>? envelope;
+        try {
+          envelope = jsonDecode(response.body) as Map<String, dynamic>;
+        } catch (_) {}
+        final transient = envelope?['retryable'] != false &&
+            (response.statusCode == 502 ||
+                response.statusCode == 503 ||
+                response.statusCode == 504);
         if (transient && attempt < 2) {
-          await Future.delayed(const Duration(milliseconds: 600));
+          final seconds = envelope?['retry_after_seconds'];
+          final wait = seconds is num ? seconds.toInt() : 0;
+          if (wait > 5) throw const AiParseException('ai_deferred');
+          await Future.delayed(wait > 0
+              ? Duration(seconds: wait)
+              : const Duration(milliseconds: 600));
           continue;
         }
-        if (transient) return null;
+        if (transient) throw const AiParseException('ai_deferred');
         var reason = 'http_${response.statusCode}';
         try {
           final json = jsonDecode(response.body);
@@ -151,12 +172,12 @@ class SupabaseAiParserClient implements AiParserClient {
         }
         throw AiParseException(reason);
       } catch (error) {
+        if (error is AiParseException) rethrow;
         if (attempt < 2) {
           await Future.delayed(const Duration(milliseconds: 600));
           continue;
         }
-        if (error is AiParseException) rethrow;
-        return null;
+        throw const AiParseException('ai_deferred');
       }
     }
     throw const AiParseException('unknown_failure');

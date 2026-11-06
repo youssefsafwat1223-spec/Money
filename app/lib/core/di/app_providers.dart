@@ -1545,6 +1545,10 @@ final captureImportServiceProvider = writerProvider<CaptureImportService>((ref) 
   final db = ref.watch(appDatabaseProvider);
   final sync = ref.watch(captureSyncServiceProvider);
   return CaptureImportService(
+    aiPrimarySelected: () async {
+      final settings = await DriftUserSettingsRepository(db).getSettings();
+      return settings.cloudProcessingEnabled && settings.aiConsentGranted;
+    },
     queue: const NativeCaptureImportQueue(),
     server: ref.watch(captureServerPortProvider),
     captureSyncService: sync,
@@ -1841,6 +1845,10 @@ final addTransactionUseCaseProvider = writerProvider<AddTransactionUseCase>((ref
                 .readDeviceSecret,
           )
         : null,
+    aiPrimarySelected: () async {
+      final settings = await DriftUserSettingsRepository(db).getSettings();
+      return settings.cloudProcessingEnabled && settings.aiConsentGranted;
+    },
     loadAiConsent: () async {
       final settings = await DriftUserSettingsRepository(db).getSettings();
       // OD-07 / C-3 — AI needs BOTH consents, matching

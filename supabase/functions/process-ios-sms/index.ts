@@ -20,6 +20,7 @@ import {
 import { type FingerprintReservationStore, reserveCaptureFingerprint } from '../_shared/fingerprint_reservation.ts';
 import { apiError, correlationId } from '../_shared/ai_endpoint.ts';
 import { type ParsedCapture, parseSms } from './parse.ts';
+import { AI_PRIMARY_MODE } from '../_shared/ai_primary.ts';
 
 export type { ParsedCapture };
 
@@ -38,6 +39,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type ProcessIosSmsDependencies = {
   createServiceClient: typeof serviceClient;
   verifyDevice: typeof verifyDevice;
+  waitUntil?: (work: Promise<unknown>) => void;
 };
 
 const defaultDependencies: ProcessIosSmsDependencies = {
@@ -172,6 +174,9 @@ export async function handleProcessIosSms(
   const rpc: Rpc = (fn, args) => supabase.rpc(fn, args) as unknown as ReturnType<Rpc>;
 
   const rawFingerprint = await sha256Hex(`${auth.installIdHash}|${payloadId}|${sanitizedText}`);
+  const aiPrimary = body.analysis_mode === AI_PRIMARY_MODE;
+  const backgroundRequested = aiPrimary && body.backgroundAnalysis === true;
+  const responseV2 = v2 || backgroundRequested;
   const claimRes = await rpc('capture_claim', {
     p_install_id_hash: auth.installIdHash,
     p_install_id: installId,
@@ -196,9 +201,9 @@ export async function handleProcessIosSms(
     case 'id_conflict':
       return json({ error: 'capture_id_conflict', correlation_id: cid }, 409);
     case 'in_progress':
-      return pending(v2, 'in_progress', cid);
+      return pending(responseV2, 'in_progress', cid);
     case 'replay':
-      return await replayResponse(supabase, auth.installIdHash, payloadId, claim, v2, cid);
+      return await replayResponse(supabase, auth.installIdHash, payloadId, claim, responseV2, cid);
     case 'claimed':
       break;
     default:
@@ -206,6 +211,7 @@ export async function handleProcessIosSms(
   }
   const leaseToken = claim.lease_token as number;
   const aiAllowed = allowAi && claim.ai_allowed === true;
+  const background = backgroundRequested && aiAllowed;
 
   const finalize = (args: {
     state: 'processed' | 'rejected' | 'retryable';
@@ -231,123 +237,159 @@ export async function handleProcessIosSms(
       p_validator_result: null,
     });
 
-  const limited = await bumpRateLimit(supabase, auth.installIdHash);
-  if (limited) {
-    await finalize({
-      state: 'retryable',
-      status: 'rejected',
-      parsed: null,
-      notification: null,
-      sanitized: null,
-      failureReason: 'rate_limited',
-      possibleDuplicate: false,
-    });
-    return json({ error: 'rate_limit_exceeded' }, 429);
-  }
-
-  let dispatchDenied: string | null = null;
-  const outcome = await parseSms({
-    text: sanitizedText,
-    rawText,
-    sender,
-    receivedAt,
-    tzOffsetMinutes,
-    locale,
-    // Server-authoritative: never the raw caller flag.
-    allowAi: aiAllowed,
-    beforeAi: async () => {
-      const dispatch = await rpc('capture_ai_dispatch', {
-        p_install_id_hash: auth.installIdHash,
-        p_payload_id: payloadId,
-        p_lease_token: leaseToken,
+  const analyzeClaim = async (): Promise<Response> => {
+    const limited = await bumpRateLimit(supabase, auth.installIdHash);
+    if (limited) {
+      await finalize({
+        state: 'retryable',
+        status: 'rejected',
+        parsed: null,
+        notification: null,
+        sanitized: null,
+        failureReason: 'rate_limited',
+        possibleDuplicate: false,
       });
-      const data = dispatch.data as Json | null;
-      if (!dispatch.error && data?.allowed === true) return true;
-      dispatchDenied = String(data?.reason ?? 'dispatch_failed');
-      return false;
-    },
-  });
-  if (dispatchDenied) {
-    console.log(JSON.stringify({ event: 'capture_ai_not_dispatched', reason: dispatchDenied }));
-    if (dispatchDenied === 'lease_lost') return pending(v2, 'in_progress', cid);
-    if (dispatchDenied === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
-    return refusal(dispatchDenied === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
-  }
-  const parsed = outcome.parsed;
+      return json({ error: 'rate_limit_exceeded' }, 429);
+    }
 
-  // Metadata only — never the raw SMS, sender, amount, merchant, secret, or body.
-  console.log(JSON.stringify({
-    event: 'sms_parse_result',
-    hasAmount: parsed.amount != null,
-    hasCurrency: parsed.currency != null,
-    type: parsed.type ?? null,
-    hasMerchant: parsed.merchant != null,
-    confidence: parsed.confidence ?? null,
-    parserSource: parsed.parserSource ?? null,
-    aiRequested: allowAi,
-    aiApplied: aiAllowed,
-    aiInvoked: outcome.aiInvoked ?? false,
-  }));
+    let dispatchDenied: string | null = null;
+    // The client requested AI, but the claim may see a newer consent snapshot.
+    // Preserve the reviewable capture without sending to AI or substituting a
+    // deterministic transaction under the client's requested AI-only mode.
+    const outcome = aiPrimary && allowAi && !aiAllowed
+      ? { accepted: false, parsed: {
+          parserSource: 'ai_pending' as const, rawMessage: sanitizedText, senderId: sender,
+        } as ParsedCapture, aiInvoked: false, aiTransientFailure: false }
+      : await parseSms({
+      text: sanitizedText,
+      rawText,
+      sender,
+      receivedAt,
+      tzOffsetMinutes,
+      locale,
+      // Server-authoritative: never the raw caller flag.
+      allowAi: aiAllowed,
+      aiPrimary,
+      beforeAi: async () => {
+        const dispatch = await rpc('capture_ai_dispatch', {
+          p_install_id_hash: auth.installIdHash,
+          p_payload_id: payloadId,
+          p_lease_token: leaseToken,
+        });
+        const data = dispatch.data as Json | null;
+        if (!dispatch.error && data?.allowed === true) return true;
+        dispatchDenied = String(data?.reason ?? 'dispatch_failed');
+        return false;
+      },
+    });
+    if (dispatchDenied && dispatchDenied !== 'analysis_exhausted') {
+      console.log(JSON.stringify({ event: 'capture_ai_not_dispatched', reason: dispatchDenied }));
+      if (dispatchDenied === 'lease_lost') return pending(responseV2, 'in_progress', cid);
+      if (dispatchDenied === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
+      return refusal(dispatchDenied === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
+    }
+    const parsed = outcome.parsed;
 
-  // Binary outcome: parseSms decides accepted/rejected deterministically (AI
-  // confidence never matters). New captures are never 'needs_review'; that
-  // value stays in CaptureStatus only because legacy rows/clients still carry it.
-  let status = (outcome.accepted && parsed.amount && parsed.currency ? 'processed' : 'rejected') as CaptureStatus;
+    // Metadata only — never the raw SMS, sender, amount, merchant, secret, or body.
+    console.log(JSON.stringify({
+      event: 'sms_parse_result',
+      hasAmount: parsed.amount != null,
+      hasCurrency: parsed.currency != null,
+      type: parsed.type ?? null,
+      hasMerchant: parsed.merchant != null,
+      confidence: parsed.confidence ?? null,
+      parserSource: parsed.parserSource ?? null,
+      aiRequested: allowAi,
+      aiApplied: aiAllowed,
+      aiInvoked: outcome.aiInvoked ?? false,
+    }));
 
-  if (status !== 'rejected') {
-    const duplicate = await detectDuplicate(supabase, auth.installIdHash, payloadId, parsed);
-    if (duplicate) {
-      status = 'duplicate';
-      parsed.duplicateStatus = 'suspicious_duplicate';
-      parsed.possibleDuplicateOfPayloadId = duplicate;
-    } else {
-      parsed.duplicateStatus = 'normal';
+    // Binary outcome: parseSms decides accepted/rejected deterministically (AI
+    // confidence never matters). New captures are never 'needs_review'; that
+    // value stays in CaptureStatus only because legacy rows/clients still carry it.
+    let status = (outcome.accepted && parsed.amount && parsed.currency ? 'processed' : 'rejected') as CaptureStatus;
+
+    if (status !== 'rejected') {
+      const duplicate = await detectDuplicate(supabase, auth.installIdHash, payloadId, parsed);
+      if (duplicate) {
+        status = 'duplicate';
+        parsed.duplicateStatus = 'suspicious_duplicate';
+        parsed.possibleDuplicateOfPayloadId = duplicate;
+      } else {
+        parsed.duplicateStatus = 'normal';
+      }
+    }
+
+    const notification: NotificationPayload = aiPrimary && status === 'rejected'
+      ? { title: '', body: '', type: 'received' }
+      : buildNotification(status, parsed, sender, receivedAt, tzOffsetMinutes);
+    if (body.localNotification === true && !background) notification.localDelivery = true;
+    // Each primary analysis already made its bounded provider attempts. A
+    // terminal unverified result is preserved for review, with no push.
+    const transient = !aiPrimary && outcome.aiTransientFailure === true;
+    const fin = await finalize({
+      state: transient ? 'retryable' : status === 'rejected' ? 'rejected' : 'processed',
+      status,
+      parsed,
+      notification: aiPrimary && status === 'rejected' ? null : notification,
+      sanitized: status === 'rejected' ? sanitizedText : null,
+      failureReason: dispatchDenied === 'analysis_exhausted'
+        ? 'analysis_exhausted'
+        : transient ? 'ai_unavailable' : status === 'rejected' ? 'not_parseable' : null,
+      possibleDuplicate: status === 'duplicate',
+    });
+    const done = fin.data as Json | null;
+    if (fin.error || !done) return json({ error: 'store_failed' }, 500);
+    if (done.written !== true) {
+      // Fenced out: nothing was stored and nothing may be sent.
+      console.log(JSON.stringify({ event: 'capture_fenced', reason: done.reason ?? null }));
+      if (done.reason === 'lease_lost') return pending(responseV2, 'in_progress', cid);
+      if (done.reason === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
+      return refusal(done.reason === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
+    }
+
+    console.log(JSON.stringify({ event: 'capture_stored', status, retryable: transient }));
+    // I-1: the durable result is committed; only now may APNs be attempted.
+    const push = done.push_allowed === true ? (done.push as PushInfo | null) : null;
+    const pushSent = push
+      ? await sendFinalizedPush(supabase, auth.installIdHash, payloadId, push, notification, parsed)
+      : false;
+    console.log(JSON.stringify({ event: 'process_ios_sms_complete', status, pushSent }));
+    const row = done.row as Json;
+    return json({
+      capture: {
+        ...captureForResponse(row, v2),
+        // Content is returned to the requester; a retryable result stores none.
+        parsed,
+        notification: aiPrimary && status === 'rejected'
+          ? notification : transient ? notification : row.notification,
+        apns_push_sent_at: pushSent ? new Date().toISOString() : row.apns_push_sent_at ?? null,
+      },
+      pushSent,
+      // v2 only (legacy shape unchanged): an APNs request was handed off for this capture
+      // (now or earlier), so the App Intent must not also show a local banner.
+      ...(responseV2 ? { state: done.state, push_attempted: push != null || Boolean(row.push_attempted_at) } : {}),
+    });
+  };
+  if (background) {
+    const runtime = (globalThis as typeof globalThis & {
+      EdgeRuntime?: { waitUntil: (work: Promise<unknown>) => void }
+    }).EdgeRuntime;
+    const wait = dependencies.waitUntil ?? runtime?.waitUntil.bind(runtime);
+    if (wait) {
+      wait(analyzeClaim().catch(async () => {
+        // A runtime/provider failure leaves the durable lease retryable. A new
+        // claimant re-checks current owner/consent before doing any work.
+        try {
+          await finalize({ state: 'retryable', status: 'rejected', parsed: null,
+            notification: null, sanitized: sanitizedText,
+            failureReason: 'analysis_deferred', possibleDuplicate: false });
+        } catch { /* The existing processing lease remains recoverable. */ }
+      }));
+      return pending(true, 'in_progress', cid);
     }
   }
-
-  const notification = buildNotification(status, parsed, sender, receivedAt, tzOffsetMinutes);
-  if (body.localNotification === true) notification.localDelivery = true;
-  const transient = outcome.aiTransientFailure === true;
-  const fin = await finalize({
-    state: transient ? 'retryable' : status === 'rejected' ? 'rejected' : 'processed',
-    status,
-    parsed,
-    notification,
-    sanitized: status === 'rejected' ? sanitizedText : null,
-    failureReason: transient ? 'ai_unavailable' : status === 'rejected' ? 'not_parseable' : null,
-    possibleDuplicate: status === 'duplicate',
-  });
-  const done = fin.data as Json | null;
-  if (fin.error || !done) return json({ error: 'store_failed' }, 500);
-  if (done.written !== true) {
-    // Fenced out: nothing was stored and nothing may be sent.
-    console.log(JSON.stringify({ event: 'capture_fenced', reason: done.reason ?? null }));
-    if (done.reason === 'lease_lost') return pending(v2, 'in_progress', cid);
-    if (done.reason === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
-    return refusal(done.reason === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
-  }
-
-  console.log(JSON.stringify({ event: 'capture_stored', status, retryable: transient }));
-  // I-1: the durable result is committed; only now may APNs be attempted.
-  const push = done.push_allowed === true ? (done.push as PushInfo | null) : null;
-  const pushSent = push
-    ? await sendFinalizedPush(supabase, auth.installIdHash, payloadId, push, notification, parsed)
-    : false;
-  console.log(JSON.stringify({ event: 'process_ios_sms_complete', status, pushSent }));
-  const row = done.row as Json;
-  return json({
-    capture: {
-      ...captureForResponse(row, v2),
-      // Content is returned to the requester; a retryable result stores none.
-      parsed,
-      notification: transient ? notification : row.notification,
-      apns_push_sent_at: pushSent ? new Date().toISOString() : row.apns_push_sent_at ?? null,
-    },
-    pushSent,
-    // v2 only (legacy shape unchanged): an APNs request was handed off for this capture
-    // (now or earlier), so the App Intent must not also show a local banner.
-    ...(v2 ? { state: done.state, push_attempted: push != null || Boolean(row.push_attempted_at) } : {}),
-  });
+  return analyzeClaim();
 }
 
 if (import.meta.main) Deno.serve((req) => handleProcessIosSms(req));

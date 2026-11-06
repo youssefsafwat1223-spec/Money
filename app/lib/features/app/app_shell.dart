@@ -38,7 +38,6 @@ import '../planning_sync/services/startup_sync_reconcile_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/session/rebootstrap_service.dart';
 import '../../core/di/rebootstrap_providers.dart';
-import '../help/coach_marks.dart';
 import '../../core/sync/sync_wakeup.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
@@ -196,11 +195,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (AppSession.instance.status != SessionStatus.authenticated) return;
-      unawaited(showCoachMarksOnce(
-        context,
-        id: CoachMarkIds.dashboard,
-        marks: dashboardCoachMarks(context),
-      ));
+
       // After the restore gate has had its frame to open (see below).
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _scheduleConsentReask());
@@ -1287,14 +1282,39 @@ class _AppShellState extends ConsumerState<AppShell> {
           // already failed to analyse (`sent` + failureReason: its banner was
           // shown by the extension) may use the in-app AI fallback, and only
           // behind the kill switch.
+          final settings =
+              await ref.read(userSettingsRepositoryProvider).getSettings();
+          final aiSelected = settings.cloudProcessingEnabled &&
+              settings.aiConsentGranted &&
+              message.localOnly != true;
           final aiAllowed = ConsentAuthority.decide(
             EgressClass.aiProcessing,
-            await ref.read(userSettingsRepositoryProvider).getSettings(),
+            settings,
           );
+          if (aiSelected && message.status == 'pendingSend') {
+            // Its durable queue still owns the analysis when the upload is
+            // temporarily refused or cannot be observed yet.
+            continue;
+          }
           var flagEnabled = false;
           try {
             flagEnabled = featureFlags.getBool('capture_ai_fallback_enabled');
           } catch (_) {}
+          if (aiSelected &&
+              payloadId != null &&
+              payloadId.isNotEmpty &&
+              !nativeCaptureMayUseAiFallback(
+                status: message.status,
+                failureReason: message.failureReason,
+                flagEnabled: flagEnabled,
+                aiAllowed: aiAllowed,
+              )) {
+            await ref.read(captureSyncServiceProvider).persistUnprocessableCapture(
+                message, isOwnerCurrent: isOwnerCurrent);
+            await ackMessage(message);
+            ref.invalidate(smartInboxItemsProvider);
+            continue;
+          }
           final result = await ingestUseCase.fromCapturedMessage(
             captured,
             onDeviceOnly: !nativeCaptureMayUseAiFallback(

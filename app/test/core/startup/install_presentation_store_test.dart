@@ -68,6 +68,19 @@ void main() {
     expect(resets, 1);
   });
 
+  test('language choice survives reopening before the welcome is complete', () async {
+    final store = InstallPresentationStore(marker);
+    await store.prepare(hasExistingData: () async => false,
+        resetPresentation: () async {});
+    expect(store.languageChosen, isFalse);
+    await store.chooseLanguage();
+    final restarted = InstallPresentationStore(marker);
+    await restarted.prepare(hasExistingData: () async => false,
+        resetPresentation: () async => fail('the first-run reset already finished'));
+    expect(restarted.languageChosen, isTrue);
+    expect(restarted.requiresSetup, isTrue);
+  });
+
   test('interrupted presentation reset retries before marking it complete', () async {
     final store = InstallPresentationStore(marker);
     await expectLater(store.prepare(hasExistingData: () async => false,

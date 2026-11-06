@@ -302,3 +302,48 @@ Deno.test('native banner ownership persists and suppresses APNs and retries, inc
   assertEquals(replay.json.pushSent, false);
   assertEquals(replay.json.capture.notification.localDelivery, true);
 });
+
+Deno.test('AI-primary Shortcut gets a pending receipt before its verified result commits', async () => {
+  const fake = fakeSupabase();
+  const stub = stubGemini({
+    is_transaction: true, amount: 250, amount_text: '250.00', currency: 'EGP',
+    merchant: 'CARREFOUR', type: 'payment', direction: 'debit', category: 'groceries',
+  });
+  const background: Promise<unknown>[] = [];
+  try {
+    const body = { payloadId: 'primary-1', sanitizedText: RESOLVED,
+      allowAi: true, analysis_mode: 'ai_primary_v1', backgroundAnalysis: true };
+    const res = await handleProcessIosSms(request(body), {
+      ...deps(fake), waitUntil: (work) => background.push(work),
+    });
+    assertEquals(res.status, 202);
+    assertEquals((await res.json()).state, 'in_progress');
+    assertEquals(background.length, 1);
+    await Promise.all(background);
+    const saved = fake.captures.get('primary-1')!;
+    assertEquals(saved.state, 'processed');
+    const parsed = saved.parsed as Record<string, unknown>;
+    assertEquals(parsed.amount, 250);
+    assertEquals(parsed.parserSource, 'ai');
+    const replay = await handleProcessIosSms(request(body), deps(fake));
+    assertEquals(replay.status, 200);
+    assertEquals(stub.calls, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('AI-primary failed extraction is kept for review without local substitution or failure push', async () => {
+  const fake = fakeSupabase();
+  const result = await call(fake, {
+    payloadId: 'primary-uncertain', sanitizedText: RESOLVED,
+    allowAi: true, analysis_mode: 'ai_primary_v1',
+  }, { is_transaction: true, amount: 9999, amount_text: '9999', currency: 'EGP',
+    type: 'payment', direction: 'debit', category: 'groceries' });
+  assertEquals(result.calls, 3);
+  assertEquals(result.json.capture.status, 'rejected');
+  assertEquals(result.json.capture.parsed.amount, undefined);
+  assertEquals(result.json.capture.notification.title, '');
+  assertEquals(result.json.pushSent, false);
+  assertEquals(fake.captures.get('primary-uncertain')!.state, 'rejected');
+});

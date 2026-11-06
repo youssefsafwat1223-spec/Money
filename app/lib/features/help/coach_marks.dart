@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/session/app_session.dart';
+import '../app/app_boot_loader.dart';
+import '../../core/startup/automatic_session_recovery.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -8,52 +11,87 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
 
-/// V1 guidance, Layer A (charter: REQUIRED_PRODUCT_CHANGE_5).
-///
-/// Contextual first-use guidance. Shown once per mark, then out of the way —
-/// the persistent half lives on the Help screen, which can replay these.
-///
-/// Deliberately NOT a spotlight cut-out over a captured widget rectangle. That
-/// approach has to resolve a `GlobalKey`'s render box at the exact moment the
-/// route settles, and gets it wrong on any screen whose content arrives
-/// asynchronously — which is most of this app's screens. A sequence of centred
-/// cards carries the same information and cannot point at the wrong place.
+/// First-use guidance with live, measured targets. Missing/offscreen targets
+/// fall back to a readable card; no rectangle is guessed or cached across steps.
 class CoachMark {
   const CoachMark({
     required this.icon,
     required this.title,
     required this.body,
+    this.target,
   });
 
   final IconData icon;
   final String title;
   final String body;
+  final GlobalKey? target;
 }
 
 /// Stable ids. Changing one re-shows that tour; the id is the identity, so it
 /// must not be derived from copy that translators may edit.
 abstract final class CoachMarkIds {
   static const String dashboard = 'dashboard.v1';
+  static const String budgets = 'budgets.v1';
+  static const String bills = 'bills.v1';
 }
 
 /// Shows [marks] once for [id], then records it as seen.
 ///
 /// A no-op when already seen, when [marks] is empty, or when the context is
 /// gone by the time it runs. Returns true when the tour was actually shown.
+bool _tourOpen = false;
+
+class _GuideAnchors extends InheritedWidget {
+  const _GuideAnchors({required this.keys, required super.child});
+  final Map<String, GlobalKey> keys;
+  static _GuideAnchors? of(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_GuideAnchors>();
+
+  @override
+  bool updateShouldNotify(_GuideAnchors oldWidget) => keys != oldWidget.keys;
+}
+
+class CoachAnchor extends StatelessWidget {
+  const CoachAnchor({super.key, required this.target, required this.child});
+  final String target;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final key = _GuideAnchors.of(context)
+        ?.keys
+        .putIfAbsent(target, () => GlobalKey(debugLabel: 'guide-$target'));
+    return KeyedSubtree(key: key, child: child);
+  }
+}
+
 Future<bool> showCoachMarksOnce(
   BuildContext context, {
   required String id,
   required List<CoachMark> marks,
 }) async {
-  if (marks.isEmpty) return false;
+  if (marks.isEmpty ||
+      _tourOpen ||
+      appDataRestoring.value ||
+      AutomaticSessionRecovery.restoringSession.value) {
+    return false;
+  }
   if (AppSession.instance.hasSeenCoachMark(id)) return false;
   if (!context.mounted) return false;
 
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    builder: (_) => _CoachMarkTour(marks: marks),
-  );
+  _tourOpen = true;
+  try {
+    await showDialog<void>(
+      context: context,
+      barrierColor:
+          marks.any((m) => m.target != null) ? Colors.transparent : null,
+      barrierDismissible: true,
+      useSafeArea: false,
+      builder: (_) => _CoachMarkTour(marks: marks),
+    );
+  } finally {
+    _tourOpen = false;
+  }
   // Recorded AFTER the tour closes, and regardless of how it closed: someone
   // who dismisses guidance has still been offered it, and re-showing it on
   // every launch would be the more annoying failure.
@@ -72,6 +110,33 @@ class _CoachMarkTour extends StatefulWidget {
 
 class _CoachMarkTourState extends State<_CoachMarkTour> {
   int _index = 0;
+  Rect? _target;
+
+  @override
+  void initState() {
+    super.initState();
+    _measure();
+  }
+
+  void _measure() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final anchor = widget.marks[_index].target?.currentContext;
+      if (anchor != null) {
+        await Scrollable.ensureVisible(anchor,
+            alignment: .4,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 200));
+      }
+      if (!mounted) return;
+      final box = anchor?.findRenderObject();
+      final rect = box is RenderBox && box.attached && box.hasSize
+          ? box.localToGlobal(Offset.zero) & box.size
+          : null;
+      setState(() => _target = rect);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,7 +145,8 @@ class _CoachMarkTourState extends State<_CoachMarkTour> {
     final mark = widget.marks[_index];
     final isLast = _index == widget.marks.length - 1;
 
-    return GlassAlertDialog(
+    final card = GlassAlertDialog(
+      scrollableContent: true,
       // AlertDialog rather than a bare Dialog: Dialog passes an unbounded width
       // down to its own Material, so any content that cannot size itself
       // intrinsically — a Spacer, an Expanded, a long unconstrained Text —
@@ -135,14 +201,137 @@ class _CoachMarkTourState extends State<_CoachMarkTour> {
             if (isLast) {
               Navigator.of(context).pop();
             } else {
-              setState(() => _index++);
+              setState(() {
+                _index++;
+                _target = null;
+              });
+              _measure();
             }
           },
           child: Text(isLast ? l10n.coachMarkDone : l10n.coachMarkNext),
         ),
       ],
     );
+    final target = _target;
+    if (target == null) return SafeArea(child: card);
+    final size = MediaQuery.sizeOf(context);
+    return Stack(children: [
+      Positioned.fill(
+          child: IgnorePointer(
+              child:
+                  CustomPaint(painter: _SpotlightPainter(target.inflate(8))))),
+      Theme(
+          data: Theme.of(context).copyWith(
+              dialogTheme: DialogTheme.of(context).copyWith(
+                  alignment: target.center.dy > size.height / 2
+                      ? Alignment.topCenter
+                      : Alignment.bottomCenter,
+                  insetPadding: const EdgeInsets.all(16))),
+          child: SafeArea(child: card)),
+    ]);
   }
+}
+
+class _SpotlightPainter extends CustomPainter {
+  const _SpotlightPainter(this.rect);
+  final Rect rect;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final hole = RRect.fromRectAndRadius(rect, const Radius.circular(16));
+    final shade = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRRect(hole);
+    canvas.drawPath(
+        shade, Paint()..color = Colors.black.withValues(alpha: .72));
+    canvas.drawRRect(
+        hole,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightPainter old) => old.rect != rect;
+}
+
+/// Wait for real content, completed restore and the active route before opening
+/// a tour. Async loading/errors never consume its once-only marker.
+class FirstUseGuide extends StatefulWidget {
+  const FirstUseGuide(
+      {super.key, required this.id, required this.marks, required this.child});
+  final String id;
+  final List<CoachMark> Function(BuildContext) marks;
+  final Widget child;
+  @override
+  State<FirstUseGuide> createState() => _FirstUseGuideState();
+}
+
+class _FirstUseGuideState extends State<FirstUseGuide> {
+  final _keys = <String, GlobalKey>{};
+  final _contentKey = GlobalKey();
+  Timer? _timer;
+  int _checks = 0;
+  bool _offered = false;
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  @override
+  void didUpdateWidget(covariant FirstUseGuide old) {
+    super.didUpdateWidget(old);
+    if (!_offered) {
+      _checks = 0;
+      _schedule();
+    }
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (AppSession.instance.status != SessionStatus.authenticated) return;
+    _timer = Timer(const Duration(milliseconds: 250), () async {
+      if (!mounted || _offered) return;
+      if (AppSession.instance.hasSeenCoachMark(widget.id)) {
+        _offered = true;
+        return;
+      }
+      final content = _contentKey.currentContext;
+      if (content == null) return;
+      final marks = widget.marks(content);
+      final ready = !appDataRestoring.value &&
+          !AutomaticSessionRecovery.restoringSession.value &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          !_tourOpen &&
+          marks.isNotEmpty &&
+          marks.every((m) => m.target?.currentContext != null);
+      if (!ready) {
+        if (++_checks < 80) _schedule();
+        return;
+      }
+      _offered = true;
+      final shown =
+          await showCoachMarksOnce(context, id: widget.id, marks: marks);
+      if (!shown && mounted) {
+        _offered = false;
+        _schedule();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _GuideAnchors(
+        keys: _keys,
+        child: KeyedSubtree(key: _contentKey, child: widget.child),
+      );
 }
 
 /// The tour widget, exposed for widget tests. Production code goes through
@@ -159,27 +348,47 @@ class CoachMarkTourForTest extends StatelessWidget {
 
 /// The dashboard tour — the first surface anyone lands on after onboarding.
 List<CoachMark> dashboardCoachMarks(BuildContext context) {
-  final l10n = context.l10n;
+  final l = context.l10n;
+  final keys = _GuideAnchors.of(context)?.keys ?? const <String, GlobalKey>{};
   return [
     CoachMark(
-      icon: AppLucideIcons.plus,
-      title: l10n.coachDashboardAddTitle,
-      body: l10n.coachDashboardAddBody,
-    ),
+        icon: AppLucideIcons.plus,
+        title: l.coachDashboardAddTitle,
+        body: l.coachDashboardAddBody,
+        target: keys['add']),
     CoachMark(
-      icon: AppLucideIcons.calendarCheck,
-      title: l10n.coachDashboardPeriodTitle,
-      body: l10n.coachDashboardPeriodBody,
-    ),
-    CoachMark(
-      icon: AppLucideIcons.inbox,
-      title: l10n.coachDashboardInboxTitle,
-      body: l10n.coachDashboardInboxBody,
-    ),
-    CoachMark(
-      icon: AppLucideIcons.helpCircle,
-      title: l10n.coachDashboardHelpTitle,
-      body: l10n.coachDashboardHelpBody,
-    ),
+        icon: AppLucideIcons.clipboardPaste,
+        title: l.coachPasteTitle,
+        body: l.coachPasteBody,
+        target: keys['paste']?.currentContext == null
+            ? keys['add']
+            : keys['paste']),
+    if (keys['account']?.currentContext != null)
+      CoachMark(
+          icon: AppLucideIcons.wallet,
+          title: l.coachAccountTitle,
+          body: l.coachAccountBody,
+          target: keys['account']),
+    if (keys['period']?.currentContext != null)
+      CoachMark(
+          icon: AppLucideIcons.calendarCheck,
+          title: l.coachDashboardPeriodTitle,
+          body: l.coachDashboardPeriodBody,
+          target: keys['period']),
   ];
 }
+
+List<CoachMark> budgetCoachMarks(BuildContext context) => [
+      CoachMark(
+          icon: AppLucideIcons.pieChart,
+          title: context.l10n.coachBudgetTitle,
+          body: context.l10n.coachBudgetBody,
+          target: _GuideAnchors.of(context)?.keys['budgetAdd']),
+    ];
+List<CoachMark> billCoachMarks(BuildContext context) => [
+      CoachMark(
+          icon: AppLucideIcons.calendarCheck,
+          title: context.l10n.coachBillsTitle,
+          body: context.l10n.coachBillsBody,
+          target: _GuideAnchors.of(context)?.keys['billAdd']),
+    ];

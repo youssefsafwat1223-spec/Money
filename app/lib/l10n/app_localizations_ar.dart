@@ -1116,7 +1116,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get coachDashboardPeriodBody =>
-      'مُحدِّد الفترة يغيّر كل الأرقام في الشاشة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص.';
+      'اختار اليوم أو الأسبوع أو الشهر لتغيير الملخص المالي المعروض.';
 
   @override
   String get coachDashboardInboxTitle => 'صندوق الوارد الذكي';
@@ -6481,7 +6481,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get pasteAnalysisHowItWorks =>
-      'تُقرأ الرسائل على جهازك أولًا. عند الحاجة، يساعد الذكاء الاصطناعي إذا كانت السحابة والتحليل الذكي مفعّلين.';
+      'لما السحابة والتحليل الذكي يكونوا مفعّلين، الذكاء الاصطناعي بيقرأ الرسائل. عند إيقافهم، قرش بيحلل على الجهاز.';
 
   @override
   String get pasteReadOnDevice =>
@@ -6930,4 +6930,46 @@ class AppL10nAr extends AppL10n {
   @override
   String get cloudResumeBody =>
       'المزامنة والتحليل الذكي متوقفان بعد تسجيل الخروج. فعّلهما من جديد لاستئناف الخدمة.';
+
+  @override
+  String get languageFirstTitle => 'اختر لغتك';
+
+  @override
+  String get languageFirstBody =>
+      'اختار اللغة اللي تحب تستخدم بيها قِرش. تقدر تغيّرها بعدين.';
+
+  @override
+  String get coachPasteTitle => 'اقرأ رسالة البنك';
+
+  @override
+  String get coachPasteBody =>
+      'من هنا الصق رسالة البنك. وفي قائمة + اختار لصق رسالة عشان التحليل الذكي يقرأها.';
+
+  @override
+  String get coachAccountTitle => 'اختار الحساب';
+
+  @override
+  String get coachAccountBody =>
+      'من هنا اختار الحساب اللي تحب تتابعه. الأرقام والعملة بتتغيّر حسب اختيارك.';
+
+  @override
+  String get coachBudgetTitle => 'حدّد أول ميزانية';
+
+  @override
+  String get coachBudgetBody =>
+      'اضغط + وحدّد مبلغ الميزانية والفترة والحساب. تقدر تعدّلها في أي وقت.';
+
+  @override
+  String get coachBillsTitle => 'تابع مدفوعاتك';
+
+  @override
+  String get coachBillsBody =>
+      'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وميعاد الدفع. بعد كده سجّل الدفعات من تفاصيله.';
+
+  @override
+  String get pasteSavedForAnalysis =>
+      'الرسالة محفوظة في الوارد الذكي وبانتظار التحليل.';
+
+  @override
+  String get retryBankAnalysis => 'أعد التحليل بالذكاء الاصطناعي';
 }

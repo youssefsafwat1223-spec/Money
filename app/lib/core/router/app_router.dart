@@ -18,6 +18,7 @@ import '../../features/onboarding/brand_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/onboarding/setup_screen.dart';
 import '../../features/onboarding/story_screen.dart';
+import '../../features/onboarding/language_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/help/help_screen.dart';
 import '../../features/settings/delete_account_screen.dart';
@@ -80,7 +81,15 @@ final appRouter = GoRouter(
       return localReadRedirect(state.uri.toString(),
           reconnectAllowed: !session.localReadTransitionPending);
     }
+    if (!session.hasChosenOnboardingLanguage) {
+      return state.uri.path == '/onboarding/language' ? null : '/onboarding/language';
+    }
     final status = session.status;
+    if (state.uri.path == '/onboarding/language') {
+      if (!session.hasSeenWelcomeManifesto) return '/welcome';
+      return status == SessionStatus.authenticated
+          ? '/' : onboardingEntryPathForSession(session);
+    }
     final inWelcome = state.matchedLocation == '/welcome';
     final inOnboarding = state.matchedLocation.startsWith('/onboarding');
     if (!session.hasSeenWelcomeManifesto) {
@@ -117,6 +126,10 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
+    GoRoute(
+      path: '/onboarding/language',
+      builder: (context, state) => const OnboardingLanguageScreen(),
+    ),
     GoRoute(
       path: '/welcome',
       name: 'welcome-story',

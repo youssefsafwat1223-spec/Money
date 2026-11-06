@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -22,8 +21,6 @@ Widget _app({Locale locale = const Locale('ar')}) {
   );
   return MaterialApp.router(
     routerConfig: router,
-    theme: AppTheme.light,
-    darkTheme: AppTheme.dark,
     locale: locale,
     supportedLocales: AppL10n.supportedLocales,
     localizationsDelegates: const [
@@ -40,70 +37,158 @@ Widget _app({Locale locale = const Locale('ar')}) {
 }
 
 void main() {
+  setUp(() {
+    // Keep every test on a stable, representative phone canvas unless a
+    // test overrides it for a specific size/text-scale scenario.
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
   Future<void> setSize(WidgetTester tester, Size size) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('all four illustrated pages advance before the original brand route', (tester) async {
+  testWidgets(
+      'first page renders the promise title; CTA appears once copy finishes',
+      (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    // Block copy renders via WordRevealText's Text.rich, so find.text() needs
+    // findRichText: true to see it — plain find.text() only matches Text.data.
+    expect(find.text('متحمّسين\nنبدأ معك', findRichText: true), findsOneWidget);
+    expect(find.text('المصروفات الصغيرة بتفرق'), findsNothing);
+
+    // Reduced motion reveals every block instantly, but each block still
+    // mounts on its own frame — settle the cascade before the CTA appears.
+    await tester.pumpAndSettle();
+    expect(find.text('كمّل'), findsOneWidget);
+  });
+
+  testWidgets('second page renders after a swipe gesture', (tester) async {
     await setSize(tester, const Size(390, 844));
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
-    final titles = ['فلوسك واضحة… من غير مجهود', 'عملياتك من رسائل البنك',
-      'ميزانية تنبهك قبل التجاوز', 'خصوصيتك قبل أي حاجة'];
-    for (var page = 0; page < 4; page++) {
-      expect(find.text(titles[page]), findsOneWidget);
-      expect(find.bySemanticsLabel('الصفحة ${page + 1} من 4'), findsOneWidget);
-      expect(find.text('BRAND'), findsNothing);
-      await tester.tap(find.text(page == 3 ? 'ابدأ مع قِرش' : 'كمّل'));
-      await tester.pumpAndSettle();
-    }
-    expect(find.text('BRAND'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
 
-  testWidgets('skip keeps the existing brand handoff', (tester) async {
-    await tester.pumpWidget(_app());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('تخطّي'));
-    await tester.pumpAndSettle();
-    expect(find.text('BRAND'), findsOneWidget);
-  });
-
-  testWidgets('RTL swipe and Back revisit the actual illustrated page', (tester) async {
-    await setSize(tester, const Size(390, 844));
-    await tester.pumpWidget(_app());
-    await tester.pumpAndSettle();
+    // RTL locale: PageView's forward direction follows Directionality, so
+    // advancing to the next page is a rightward (positive dx) drag here, not
+    // the LTR-style leftward swipe.
     await tester.drag(find.byType(PageView), const Offset(500, 0));
     await tester.pumpAndSettle();
-    expect(find.text('عملياتك من رسائل البنك'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
+
+    expect(find.text('المصروفات الصغيرة بتفرق', findRichText: true),
+        findsOneWidget);
+    expect(find.text('ابدأ مع قِرش'), findsOneWidget);
+    expect(find.text('متحمّسين\nنبدأ معك'), findsNothing);
+
+    // flutter_animate schedules its own internal (non-Scheduler) Timer for
+    // page-2's illustration animation, which pumpAndSettle doesn't wait on.
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
-    expect(find.text('فلوسك واضحة… من غير مجهود'), findsOneWidget);
   });
 
-  testWidgets('English copy remains LTR and consent is not granted by the intro', (tester) async {
+  testWidgets('continue CTA moves programmatically to page 2', (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('كمّل'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('المصروفات الصغيرة بتفرق'), findsOneWidget);
+    expect(find.text('متحمّسين\nنبدأ معك'), findsNothing);
+  });
+
+  testWidgets('skip exits the complete story and navigates to brand',
+      (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    await tester.tap(find.text('تخطّي'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('BRAND'), findsOneWidget);
+    expect(find.byType(OnboardingStoryScreen), findsNothing);
+  });
+
+  testWidgets('final CTA navigates exactly once despite repeated taps',
+      (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('كمّل'));
+    await tester.pumpAndSettle();
+
+    final startCta = find.text('ابدأ مع قِرش');
+    await tester.tap(startCta);
+    await tester.tap(startCta);
+    await tester.tap(startCta);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('BRAND'), findsOneWidget);
+  });
+
+  testWidgets('page semantics reflect the current page', (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('الصفحة ١ من ٢'), findsOneWidget);
+
+    await tester.tap(find.text('كمّل'));
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('الصفحة ٢ من ٢'), findsOneWidget);
+  });
+
+  testWidgets('copy is sourced from localization, not hardcoded Arabic',
+      (tester) async {
     await setSize(tester, const Size(390, 844));
     await tester.pumpWidget(_app(locale: const Locale('en')));
     await tester.pumpAndSettle();
-    expect(find.text('Your money, clear — without the effort'), findsOneWidget);
-    expect(Directionality.of(tester.element(find.byType(PageView))), TextDirection.ltr);
-    expect(find.byType(Switch), findsNothing);
+
+    expect(find.text('Excited\nto start with you', findRichText: true),
+        findsOneWidget);
     expect(find.text('Continue'), findsOneWidget);
-    expect(find.byKey(const ValueKey('onboarding-language')), findsOneWidget);
+    expect(find.text('Skip'), findsOneWidget);
+    expect(find.text('متحمّسين\nنبدأ معك'), findsNothing);
   });
 
-  testWidgets('small-phone content scrolls without overflow', (tester) async {
+  testWidgets('large accessibility text does not overflow on a small phone',
+      (tester) async {
     await setSize(tester, const Size(320, 568));
-    await tester.pumpWidget(_app());
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          disableAnimations: true,
+          textScaler: TextScaler.linear(1.25),
+        ),
+        child: _app(),
+      ),
+    );
     await tester.pumpAndSettle();
-    for (var page = 0; page < 4; page++) {
-      expect(tester.takeException(), isNull);
-      if (page < 3) {
-        await tester.tap(find.text('كمّل'));
-        await tester.pumpAndSettle();
-      }
-    }
+
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('كمّل'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('RTL: Arabic locale lays the screen out right-to-left',
+      (tester) async {
+    await setSize(tester, const Size(390, 844));
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    final direction = Directionality.of(
+      tester.element(find.text('متحمّسين\nنبدأ معك', findRichText: true)),
+    );
+    expect(direction, TextDirection.rtl);
   });
 }

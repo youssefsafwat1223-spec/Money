@@ -1,3 +1,5 @@
+import { AI_PRIMARY_MODE, checkPrimaryAmount, runPrimaryAi } from '../_shared/ai_primary.ts';
+import { validateAiCandidate } from '../_shared/ai_candidate_validator.ts';
 import { bumpCaptureEndpointRateLimit, corsHeaders, readString, serviceClient } from '../_shared/capture_auth.ts';
 import {
   apiError,
@@ -440,6 +442,28 @@ Important ATM/bank-location rule:
 SMS: ${reSanitized}
 
 Return ONLY valid JSON. No markdown, no explanation.`;
+
+  if (body.analysis_mode === AI_PRIMARY_MODE) {
+    const validate = (value: Record<string, unknown>) => {
+      if (value.is_transaction !== true) return 'is_transaction_required';
+      if (typeof value.category_key !== 'string' || !value.category_key) return 'category_required';
+      const checked = validateAiCandidate({ candidate: value,
+        sanitizedText: reSanitized, receivedAt: new Date().toISOString(), local: null });
+      return checked.accepted ? checkPrimaryAmount(value, reSanitized) : checked.reason;
+    };
+    const result = await runPrimaryAi({ prompt, key: route.key, model: GEMINI_MODEL,
+      validate, beforeAttempt: async () => {
+        const fresh = await resolveVerifiedIdentity(req, supabase, body, cid);
+        return fresh.ok && fresh.identity.ownerKey === identity.identity.ownerKey &&
+          consentError(fresh.identity, 'ai', cid) == null;
+      } });
+    if (!result.ok) {
+      if (result.reason === 'denied') return apiError('consent_required', { correlationId: cid });
+      return failUpstream(result.reason === 'unavailable' ? 'upstream_timeout' : 'upstream_rejected');
+    }
+    if (result.value.is_transaction === false) return finish({ is_transaction: false });
+    return finish({ ...result.value, model_used: GEMINI_MODEL });
+  }
 
   let parsed: Record<string, unknown> | null = null;
   try {

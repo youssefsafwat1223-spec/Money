@@ -70,6 +70,7 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
     String? senderId,
     DateTime? receivedAt,
     String lang = 'ar',
+    bool awaitingAnalysis = false,
   }) async {
     final itemId = 'local_capture:$payloadId';
     final now = DateTime.now().toUtc();
@@ -88,9 +89,11 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
         Variable.withString(itemId),
         Variable.withString(itemId),
         Variable.withString(payloadId),
-        Variable.withString(lang == 'en'
-            ? 'An unsupported bank message that needs review'
-            : 'رسالة بنكية غير مدعومة تحتاج مراجعة'),
+        Variable.withString(awaitingAnalysis
+            ? (lang == 'en' ? 'Bank message awaiting analysis'
+                : 'رسالة بنكية بانتظار التحليل')
+            : (lang == 'en' ? 'An unsupported bank message that needs review'
+                : 'رسالة بنكية غير مدعومة تحتاج مراجعة')),
         Variable.withString(rawMessage),
         Variable.withString(jsonEncode({
           'capture_disposition': 'unprocessable',
@@ -106,6 +109,14 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
       ],
     );
     return itemId;
+  }
+
+  Future<void> removeManualAnalysisDraft(String id) async {
+    await _db.customUpdate(
+      "DELETE FROM smart_inbox_items WHERE id = ? AND server_id = id "
+      "AND json_extract(metadata_json, '\$.source') = 'manualPaste';",
+      variables: [Variable.withString(id)],
+    );
   }
 
   /// Bare legacy `rejected:<payloadId>` dedup markers are not durable capture

@@ -462,6 +462,11 @@ class CaptureSyncService {
     List<TransactionEntity> committed,
   ) async {
     final parsed = capture.parsed;
+    if (parsed['parserSource'] == 'ai_ignored') {
+      await requireCurrentAdmission();
+      await markPayloadImported(payloadId: capture.payloadId, transactionId: 'ignored');
+      return;
+    }
     final sanitizedText = capture.sanitizedText;
     final rawMessage = sanitizedText != null && sanitizedText.isNotEmpty
         ? sanitizedText
@@ -469,7 +474,10 @@ class CaptureSyncService {
             _string(parsed['rawMessage']) ??
                 'Backend capture ${capture.payloadId} could not be parsed',
           );
-    if ((capture.status == 'rejected' || capture.status == 'needs_review') &&
+    final settings = await _settingsRepository.getSettings();
+    if (!(settings.cloudProcessingEnabled && settings.aiConsentGranted) &&
+        parsed['parserSource'] != 'ai_pending' &&
+        (capture.status == 'rejected' || capture.status == 'needs_review') &&
         await _recoverRejectedLocally(
           capture,
           committed: committed,
@@ -773,7 +781,7 @@ class CaptureSyncService {
       currency: normalizedCurrency,
       accountId: account?.id,
       type: type,
-      source: _string(parsed['parserSource']) == 'ai_hybrid'
+      source: const {'ai', 'ai_hybrid'}.contains(_string(parsed['parserSource']))
           ? TransactionSourceEntity.aiParsed
           : TransactionSourceEntity.bank,
       occurredAt: occurredAt,
