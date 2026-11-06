@@ -75,6 +75,9 @@ void main() {
       () async {
     expect(presentation.requiresSetup, isTrue);
     expect(f.session.hasCompletedOnboarding, isFalse);
+    expect(await f.session.reconcileAccountOnboarding(sdk), isFalse,
+        reason: 'automatic reconciliation does not bypass first-run UI');
+    expect(profileRequests, isEmpty);
 
     expect(await verify(), isTrue);
     expect(profileRequests, hasLength(1));

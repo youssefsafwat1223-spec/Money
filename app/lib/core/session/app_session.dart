@@ -4798,9 +4798,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
         (sameIdentity &&
             fallbackKey != null &&
             _completedAccountKeys.contains(fallbackKey)));
-    if (!completed && asr == null) {
-      // Installation presentation is separate from account completion.
-      // Read before the admission operation so removal never waits for network.
+    if (!completed &&
+        asr == null &&
+        (!localSetupRequired || requireOnboardingResult)) {
+      // On a fresh install, the signed-in checkpoint checks completion after
+      // language and welcome. Read outside admission so removal never waits
+      // for network.
       final remoteCompleted = await _readRemoteOnboardingCompletion(
         session.user.id,
         client,
