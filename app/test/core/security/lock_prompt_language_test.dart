@@ -56,6 +56,9 @@ void main() {
       'lib/core/backup/restore_backup_usecase.dart':
           'a backup snapshot carrying a language (mirrored post-commit, so a '
               'rolled-back restore leaves the mirror alone)',
+      'lib/features/onboarding/language_screen.dart':
+          'the first-run picker persists the choice in the lock prompt mirror '
+              'when the signed-out scope cannot write settings.',
       'lib/features/onboarding/widgets/onboarding_language_button.dart':
           'sign-in screen under a read-only signed-out scope: no settings row '
               'can be written, so the mirror alone holds the choice (it seeds '

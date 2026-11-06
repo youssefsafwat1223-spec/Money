@@ -672,7 +672,12 @@ void main() {
 
       void check(String path, String placement, List<String> forbidden) {
         final src = read(path);
-        final at = src.indexOf(placement);
+        final marker = RegExp(
+          r'QirshAdBanner\(\s*placement:\s*AdPlacement\.' +
+              RegExp.escape(placement) +
+              r'\b',
+        );
+        final at = src.indexOf(marker);
         expect(at, greaterThan(-1), reason: '$placement missing from $path');
         // Only the text between the enclosing build and the placement can gate
         // it; a mention further down the file is unrelated.
@@ -684,15 +689,13 @@ void main() {
         }
       }
 
-      check('lib/features/dashboard/dashboard_screen.dart',
-          'QirshAdBanner(placement: AdPlacement.dashboard)', [
+      check('lib/features/dashboard/dashboard_screen.dart', 'dashboard', [
         'if (!data.isEmpty)\n          const Padding',
       ]);
-      check('lib/features/reports/reports_screen.dart',
-          'QirshAdBanner(\n                                      placement: AdPlacement.reports)',
+      check('lib/features/reports/reports_screen.dart', 'reports',
           ['if (section.topCategories.isNotEmpty)']);
       check('lib/features/subscriptions/subscriptions_screen.dart',
-          'QirshAdBanner(\n                                    placement: AdPlacement.subscriptions)',
+          'subscriptions',
           ['if (subs.isNotEmpty || insts.isNotEmpty)']);
 
       expect(offenders, isEmpty,

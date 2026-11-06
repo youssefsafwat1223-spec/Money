@@ -6943,7 +6943,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get coachPasteBody =>
-      'من هنا الصق رسالة البنك. وفي قائمة + اختار لصق رسالة عشان التحليل الذكي يقرأها.';
+      'الصق رسالة البنك هنا، أو اختر «لصق رسالة» من قائمة الإضافة لكي يحلّلها قرش.';
 
   @override
   String get coachAccountTitle => 'اختار الحساب';
@@ -6964,7 +6964,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get coachBillsBody =>
-      'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وميعاد الدفع. بعد كده سجّل الدفعات من تفاصيله.';
+      'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وموعد الدفع. ثم سجّل الدفعات من صفحة التفاصيل.';
 
   @override
   String get pasteSavedForAnalysis =>

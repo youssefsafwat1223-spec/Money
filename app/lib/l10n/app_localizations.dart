@@ -11632,7 +11632,7 @@ abstract class AppL10n {
   /// No description provided for @coachPasteBody.
   ///
   /// In ar, this message translates to:
-  /// **'من هنا الصق رسالة البنك. وفي قائمة + اختار لصق رسالة عشان التحليل الذكي يقرأها.'**
+  /// **'الصق رسالة البنك هنا، أو اختر «لصق رسالة» من قائمة الإضافة لكي يحلّلها قرش.'**
   String get coachPasteBody;
 
   /// No description provided for @coachAccountTitle.
@@ -11668,7 +11668,7 @@ abstract class AppL10n {
   /// No description provided for @coachBillsBody.
   ///
   /// In ar, this message translates to:
-  /// **'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وميعاد الدفع. بعد كده سجّل الدفعات من تفاصيله.'**
+  /// **'اضغط + لإضافة اشتراك أو قسط، وحدّد المبلغ وموعد الدفع. ثم سجّل الدفعات من صفحة التفاصيل.'**
   String get coachBillsBody;
 
   /// No description provided for @pasteSavedForAnalysis.

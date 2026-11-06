@@ -389,6 +389,40 @@ void main() {
     expect(countingClient.callCount, 1);
   });
 
+  test('temporarily blocked AI keeps a locally readable message for review',
+      () async {
+    final client = _CountingAiClient();
+    final local = ParsedTransaction(
+      amountText: '250',
+      amount: 250,
+      currency: 'EGP',
+      type: TransactionType.payment,
+      source: TransactionSource.bank,
+      rawMerchant: 'STARBUCKS',
+      occurredAt: DateTime.utc(2026, 11, 6),
+      parseConfidence: 0.95,
+    );
+    final useCase = AddTransactionUseCase(
+      transactionRepository: _CapturingTransactionRepo(
+        onSave: (_) => fail('AI-selected capture must not save a local result'),
+      ),
+      merchantCategoryRepository: _StubMerchantRepo(),
+      parserIsolate: _FakeParserIsolate(ParseResult.success(local)),
+      aiPrimarySelected: () async => true,
+      loadAiConsent: () async => false,
+      aiClient: client,
+    );
+
+    final result = await useCase(
+      rawMessage: 'Purchase EGP 250 at STARBUCKS',
+      senderId: 'QNB',
+    );
+
+    expect(client.callCount, 0);
+    expect(result.outcome, AddTransactionOutcome.notTransaction);
+    expect(result.droppedByParser, isTrue);
+  });
+
   test('over-precision capture token is retained only as pending legacy fallback',
       () async {
     final fakeParsed = ParsedTransaction(
