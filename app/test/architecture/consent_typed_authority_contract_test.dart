@@ -148,7 +148,7 @@ void main() {
     expect(_anchor(setIdentity, 'final consentLossAtAcceptance = _consentLossSeq;'),
         lessThan(_anchor(setIdentity, 'await ')));
     expect(setIdentity, contains('consentLossSeq: consentLossAtAcceptance'));
-    final reconcile = _body(session, 'Future<void> _reconcileSupabaseSession(');
+    final reconcile = _body(session, 'Future<bool?> _reconcileSupabaseSession(');
     expect(_anchor(reconcile, 'final consentLossSeq = _consentLossSeq;'),
         lessThan(_anchor(reconcile, 'await _ensureLocalDataOwnedBy')));
     expect(reconcile, contains('consentLossSeq: consentLossSeq'));

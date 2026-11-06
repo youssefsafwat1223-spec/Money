@@ -15,6 +15,8 @@ import '../session/admission_authority.dart';
 import '../session/consent_capability.dart';
 import 'consent_authority.dart';
 
+final _emptyBodyFingerprint = sha256.convert(const <int>[]).toString();
+
 /// Astra G / C.4: the durable shared denial state and the ONE admission gate.
 ///
 /// ## The record
@@ -47,8 +49,8 @@ import 'consent_authority.dart';
 /// Cloud OFF blocks all automatic, background and application-data network
 /// egress. The only operations permitted while OFF are explicit user-initiated
 /// sign-in, re-authentication, delete-account and cancel-delete, with their
-/// strictly necessary authentication exchanges. They do not enable Cloud and
-/// authorize nothing else. They run through [runAccountControl], an
+/// narrowly scoped account exchanges, including the setup check after sign-in.
+/// They do not enable Cloud and authorize nothing else. They run through [runAccountControl], an
 /// operation-scoped, time-boxed, endpoint-allowlisted capability (see
 /// [AccountControlGrant] and [kAccountControlAllowlist]).
 ///
@@ -1308,7 +1310,9 @@ enum EgressGrantKind { accountControl, revoke }
 
 /// The ONLY operations allowed to reach the network while Cloud is OFF
 /// (Astra H2.1). They never enable Cloud and never widen any consent.
-enum AccountControlOp { signIn, reauthenticate, deleteAccount, cancelDelete }
+enum AccountControlOp {
+  signIn, reauthenticate, deleteAccount, cancelDelete, onboardingStatus,
+}
 
 /// One exact endpoint: method + path (+ the one permitted `grant_type` query).
 /// Anything else (another path, another query key, another method) is denied.
@@ -1354,7 +1358,9 @@ class AccountControlEndpoint {
 ///    stored access token is expired. That refresh is allowed ONLY inside these
 ///    two ops.
 /// `/auth/v1/user`, `/auth/v1/logout`, PostgREST tables, other RPCs,
-/// functions, storage and realtime are NOT on any list.
+/// functions, storage and realtime are outside those static lists. The
+/// setup-status grant separately binds one field to the current account,
+/// token and empty request body in AccountControlGrant.scopeViolation.
 const Map<AccountControlOp, List<AccountControlEndpoint>>
     kAccountControlAllowlist = {
   AccountControlOp.signIn: _signInEndpoints,
@@ -1391,8 +1397,10 @@ const Duration kAccountControlTtl = Duration(seconds: 30);
 /// One operation-scoped grant. Admission requires [active] (not ended, not
 /// expired), the configured Supabase host and an endpoint on the op's list.
 class AccountControlGrant {
-  AccountControlGrant._(this.op, this.id, this.ttl, this._now)
-      : _startedAt = _now();
+  AccountControlGrant._(this.op, this.id, this.ttl, this._now,
+      {this.onboarding}) : _startedAt = _now();
+
+  final ({AdmissionAuthority authority, String accessToken})? onboarding;
 
   final AccountControlOp op;
   final int id;
@@ -1420,6 +1428,18 @@ class AccountControlGrant {
         : base.path;
     if (!uri.path.startsWith(prefix)) return 'grant_endpoint';
     final relative = uri.path.substring(prefix.length);
+    if (op == AccountControlOp.onboardingStatus) {
+      final identity = onboarding;
+      final query = uri.queryParametersAll;
+      return identity != null &&
+              method.toUpperCase() == 'GET' &&
+              relative == '/rest/v1/profiles' &&
+              query.length == 2 &&
+              listEquals(query['select'], ['onboarding_completed_at']) &&
+              listEquals(query['id'], ['eq.${identity.authority.uid}'])
+          ? null
+          : 'grant_endpoint';
+    }
     for (final e in kAccountControlAllowlist[op]!) {
       if (e.matches(method, relative, uri.queryParameters)) return null;
     }
@@ -2261,10 +2281,11 @@ class CloudEgressGate {
     if (_holds.isNotEmpty) return 'transition_hold';
     final revoke = grant?.kind == EgressGrantKind.revoke;
     final control = grant?.control;
-    // D6: local read admits only an explicit account-control exchange.
-    if (control == null && _localReadDenies) return 'local_read';
-    // ASR §11.4: terminal denial admits only explicit account control.
-    if (control == null && _terminalDenied) return 'terminal';
+    final onboarding = control?.op == AccountControlOp.onboardingStatus;
+    final lifecycleRestricted = control == null || onboarding;
+    // The setup lookup requires an admitted account and cannot recover one.
+    if (lifecycleRestricted && _localReadDenies) return 'local_read';
+    if (lifecycleRestricted && _terminalDenied) return 'terminal';
     if (control != null) {
       // A grant that ended or expired admits NOTHING (a zone timer or retry
       // that fires after the op finished lands here).
@@ -2285,7 +2306,7 @@ class CloudEgressGate {
     }
     // N2: an unconfirmed native lifecycle fence denies ordinary egress. The
     // account-control allowance (re-authentication) and the revoke are exempt.
-    if (_lifecycleDenied && control == null && !revoke) {
+    if (_lifecycleDenied && lifecycleRestricted && !revoke) {
       return 'lifecycle_fence';
     }
     final readout = await store.read(owner: owner);
@@ -2299,6 +2320,17 @@ class CloudEgressGate {
           : 'disabling';
     }
     if (revoke) return 'revoke_outside_disabling';
+    if (onboarding) {
+      if (await _pendingDenies(owner)) return 'pending_enable';
+      final identity = control?.onboarding;
+      if (identity == null ||
+          !identity.authority.isCurrent ||
+          identity.authority.uid != owner ||
+          request?.authorization != 'Bearer ${identity.accessToken}' ||
+          request?.bodyFingerprint != _emptyBodyFingerprint) {
+        return 'grant_identity';
+      }
+    }
     if (control != null) {
       // Account control: exact host + method + path (+ grant_type) only, in ON,
       // OFF and unset alike. Everything else inside the allowance is denied.
@@ -2602,7 +2634,8 @@ class CloudEgressGate {
   ///    consent.
   Future<T> runAccountControl<T>(
       AccountControlOp op, Future<T> Function() body,
-      {bool attempt = false}) async {
+      {bool attempt = false,
+      ({AdmissionAuthority authority, String accessToken})? onboarding}) async {
     // §11.3: an explicit attempt waits (bounded) until ASR really finished; ASR
     // keeps ownership on a timeout and the attempt fails retryably.
     final quiesced = asrQuiesced;
@@ -2611,7 +2644,8 @@ class CloudEgressGate {
           onTimeout: () => throw TimeoutException('asr_quiescence'));
     }
     final control =
-        AccountControlGrant._(op, ++_grantSeq, accountControlTtl, _monotonic);
+        AccountControlGrant._(op, ++_grantSeq, accountControlTtl, _monotonic,
+            onboarding: onboarding);
     final grant = EgressGrant.accountControl(control);
     try {
       // `() async => await body()` on purpose: a lazily-executed builder (a
@@ -3187,7 +3221,10 @@ class GatedHttpClient extends http.BaseClient {
     if (refresh != null) throw EgressDeniedException(refresh);
     // §4.8: nothing from an alignment zone reaches admission.
     if (CloudEgressGate.inAlignmentZone) throw EgressDeniedException('alignment');
-    final deletion = (Zone.current[CloudEgressGate._grantKey] as EgressGrant?)?._deletion;
+    final grant = Zone.current[CloudEgressGate._grantKey] as EgressGrant?;
+    final deletion = grant?._deletion;
+    final bindsBody =
+        deletion != null || grant?.control?.op == AccountControlOp.onboardingStatus;
     if (deletion != null && bytes == null) {
       throw EgressDeniedException('deletion_stream');
     }
@@ -3199,7 +3236,7 @@ class GatedHttpClient extends http.BaseClient {
     }
     final ticket = await gate.admit(request: AdmissionRequest(request.method, request.url,
       bodyFingerprint:
-          deletion == null ? null : sha256.convert(bytes!).toString(),
+          bindsBody && bytes != null ? sha256.convert(bytes).toString() : null,
       authorization: header('authorization'), contentType: header('content-type')));
     if (deletion != null && !gate.isCurrent(ticket)) {
       gate.release(ticket);

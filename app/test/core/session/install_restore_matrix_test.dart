@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'fake_account_scope.dart';
+import 'f2_fixture.dart';
 
 /// AUDIT 2 — THE INSTALL / REINSTALL / KEYCHAIN / RESTORE STATE MATRIX.
 ///
@@ -239,8 +240,12 @@ void main() {
     await session.markWelcomeManifestoSeen();
     await launchAs('uid-a');
     expect(session.hasCompletedOnboarding, isFalse,
-        reason: 'cleared local completion requires verification before skipping setup');
-    await session.finishOnboarding();
+        reason: 'the account must be verified before skipping setup');
+    final sdk = await F2Fixture.liveClient('uid-a');
+    addTearDown(sdk.dispose);
+    expect(await session.reconcileAccountOnboarding(sdk,
+        requireRemoteResult: true), isTrue,
+        reason: 'the exact UID can reuse its surviving completion');
     expect(session.hasCompletedOnboarding, isTrue);
     expect(presentation.requiresSetup, isFalse);
     await session.load();

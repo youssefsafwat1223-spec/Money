@@ -34,7 +34,8 @@ void main() {
     final values = await storage.readAll();
     expect(values['welcome_manifesto_seen'], isNull);
     expect(values['onboarding_done'], isNull);
-    expect(values['onboarding_completed_accounts_v1'], isNull);
+    expect(values['onboarding_completed_accounts_v1'], '["uid:previous"]',
+        reason: 'account completion survives as a UID-scoped hint');
     expect(values['app_theme_mode'], isNull);
     expect(values['local_data_owner_uid'], 'previous');
     expect(values['cloud_egress_state_v1'], 'preserve-barrier');

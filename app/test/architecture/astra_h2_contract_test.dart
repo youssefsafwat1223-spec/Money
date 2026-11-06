@@ -37,7 +37,7 @@ void main() {
     expect(
         gate,
         contains(
-            'enum AccountControlOp { signIn, reauthenticate, deleteAccount, cancelDelete }'));
+            'signIn, reauthenticate, deleteAccount, cancelDelete, onboardingStatus,'));
     for (final f in const [
       'lib/core/auth/supabase_auth_service.dart',
       'lib/core/auth/account_deletion_service.dart'

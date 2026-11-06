@@ -511,7 +511,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> resetInstallPresentation() async {
     _languageChoiceMade = false;
     for (final key in [_kDone, _kWelcomeManifestoSeen, _kCoachMarksSeen,
-      _kCurrentAccount, _kCompletedAccounts, 'app_theme_mode']) {
+      _kCurrentAccount, 'app_theme_mode']) {
       await _storage.delete(key: key);
     }
   }
@@ -4793,11 +4793,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
         previousEmail != null &&
         remoteEmail.trim().toLowerCase() == previousEmail.trim().toLowerCase();
     final localSetupRequired = _installPresentation?.requiresSetup ?? false;
-    var completed = !localSetupRequired &&
-        (_completedAccountKeys.contains(accountKey) ||
-        (sameIdentity &&
-            fallbackKey != null &&
-            _completedAccountKeys.contains(fallbackKey)));
+    // Only the exact authenticated UID can reuse a surviving completion
+    // record on a new installation. Legacy email keys are for ordinary reopen.
+    final uidCompleted = _completedAccountKeys.contains(accountKey);
+    var completed = localSetupRequired
+        ? requireOnboardingResult && uidCompleted
+        : uidCompleted ||
+            (sameIdentity &&
+                fallbackKey != null &&
+                _completedAccountKeys.contains(fallbackKey));
     if (!completed &&
         asr == null &&
         (!localSetupRequired || requireOnboardingResult)) {
@@ -4805,8 +4809,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // language and welcome. Read outside admission so removal never waits
       // for network.
       final remoteCompleted = await _readRemoteOnboardingCompletion(
-        session.user.id,
         client,
+        session,
+        authority: requireOnboardingResult ? adm.authority : null,
       );
       if (!adm.current || lossSeq != _authLossSeq) return null;
       if (remoteCompleted == null && requireOnboardingResult) {
@@ -4900,16 +4905,28 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<bool?> _readRemoteOnboardingCompletion(
-      String userId, supabase.SupabaseClient client) async {
+    supabase.SupabaseClient client,
+    supabase.Session session, {
+    AdmissionAuthority? authority,
+  }) async {
     try {
-      final row = await client
-          .from('profiles')
-          .select('onboarding_completed_at')
-          .eq('id', userId)
-          .maybeSingle()
-          .retry(enabled: false)
-          .timeout(const Duration(seconds: 8));
-      return row?['onboarding_completed_at'] != null;
+      Future<bool> read() async {
+        final row = await client
+            .from('profiles')
+            .select('onboarding_completed_at')
+            .eq('id', session.user.id)
+            .maybeSingle()
+            .retry(enabled: false)
+            .timeout(const Duration(seconds: 8));
+        return row?['onboarding_completed_at'] != null;
+      }
+
+      if (authority == null) return await read();
+      return await CloudEgressGate.instance.runAccountControl(
+        AccountControlOp.onboardingStatus,
+        read,
+        onboarding: (authority: authority, accessToken: session.accessToken),
+      );
     } catch (error) {
       // An unavailable lookup is distinct from confirmed incomplete setup.
       // Interactive sign-in can retry, while automatic startup keeps its fallback.

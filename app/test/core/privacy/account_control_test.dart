@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/privacy/consent_authority.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../harness/egress_test_support.dart';
@@ -133,6 +134,49 @@ void main() {
           () => client.auth.signInWithIdToken(
               provider: OAuthProvider.apple, idToken: 'x', nonce: 'n'));
       expect(spy.calls, ['POST /auth/v1/token?grant_type=id_token']);
+    });
+
+    test('onboarding checks only the exact signed-in UID and one field while OFF',
+        () async {
+      await client.auth.setInitialSession(jsonEncode(_sessionJson(expired: false)));
+      var current = true;
+      final token = client.auth.currentSession!.accessToken;
+      await egress.gate.runAccountControl(
+        AccountControlOp.onboardingStatus,
+        () async {
+          final allowed = client.from('profiles')
+              .select('onboarding_completed_at').eq('id', 'uid-a').maybeSingle();
+          expect(await allowed, isNull);
+          expect(spy.follow, isFalse);
+          expect(await expectDenied(() => client.from('profiles')
+              .select().eq('id', 'uid-a')), isA<EgressDeniedException>());
+          expect(await expectDenied(() => client.from('profiles')
+              .select('onboarding_completed_at').eq('id', 'uid-b')),
+              isA<EgressDeniedException>());
+          expect(await expectDenied(() => client.rpc('mark_onboarding_completed')),
+              isA<EgressDeniedException>());
+          final exactUrl = Uri.parse(
+              '$_url/rest/v1/profiles?select=onboarding_completed_at&id=eq.uid-a');
+          final raw = GatedHttpClient(spy.client);
+          expect(await expectDenied(() => raw.get(exactUrl,
+              headers: {'Authorization': 'Bearer wrong-session'})),
+              isA<EgressDeniedException>());
+          expect(await expectDenied(() => raw.send(http.Request('GET', exactUrl)
+              ..headers['Authorization'] = 'Bearer $token'
+              ..body = 'financial-payload')),
+              isA<EgressDeniedException>());
+          current = false;
+          expect(await expectDenied(() => client.from('profiles')
+              .select('onboarding_completed_at').eq('id', 'uid-a')),
+              isA<EgressDeniedException>());
+        },
+        onboarding: (
+          authority: AdmissionAuthority('uid-a', () => current, canCreate: false),
+          accessToken: token,
+        ),
+      );
+      expect(spy.seen, hasLength(1));
+      expect(await egress.gate.permits(), isFalse);
     });
 
     test('deleteAccount: the RPC', () async {
@@ -333,7 +377,7 @@ void main() {
             await client.rpc('request_account_deletion');
           } else if (op == AccountControlOp.cancelDelete) {
             await client.rpc('cancel_account_deletion');
-          } else {
+          } else if (op != AccountControlOp.onboardingStatus) {
             await client.auth.signInWithOtp(email: 'a@b.c');
           }
         });
