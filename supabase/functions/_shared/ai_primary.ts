@@ -33,8 +33,17 @@ export function checkPrimaryAmount(value: Record<string, unknown>, sms: string):
   const amount = value.amount_text;
   if (typeof amount !== 'string') return 'amount_text_missing';
   const balance = /(?:\b(?:available|remaining|current|new|closing|updated|ledger)\s+balance\b|\bbalance\s*(?:is|:)|الرصيد\s*(?:المتاح|المتبقي|الحالي|الجديد|[:：])|متاح\s+للشراء)/iu.exec(sms);
-  if (balance && !amountTextGrounded(amount, sms.slice(0, balance.index))) {
-    return 'transaction_amount_not_balance';
+  if (balance) {
+    const valueStart = balance.index + balance[0].length;
+    const balanceValue = /^\s*(?:is\s*|[:：=]\s*)?(?:[A-Z]{3}\s*|(?:جنيه|ريال|درهم)\s*)?[+-]?[0-9٠-٩۰-۹][0-9٠-٩۰-۹.,٬٫]*/iu
+      .exec(sms.slice(valueStart));
+    if (balanceValue && amountTextGrounded(amount, balanceValue[0])) {
+      const transactionEvidence = sms.slice(0, balance.index) +
+        sms.slice(valueStart + balanceValue[0].length);
+      if (!amountTextGrounded(amount, transactionEvidence)) {
+        return 'transaction_amount_not_balance';
+      }
+    }
   }
   const type = value.type;
   const direction = value.direction;

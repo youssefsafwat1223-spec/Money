@@ -38,3 +38,40 @@ Deno.test('transient AI failure stops before re-sending after consent changes', 
   assertEquals(reply, { ok: false, reason: 'denied', attempts: 1 });
   assertEquals(calls, 1);
 });
+
+Deno.test('a balance before the purchase does not reject the actual transaction amount', () => {
+  const sms = 'Available balance EGP 4750.00. Purchase EGP 250.00 at CARREFOUR.';
+  assertEquals(checkPrimaryAmount(candidate, sms), null);
+  assertEquals(checkPrimaryAmount(
+    { ...candidate, amount: 4750, amount_text: '4750.00' }, sms),
+    'transaction_amount_not_balance');
+});
+
+Deno.test('a transaction equal to its remaining balance is still supported', () => {
+  assertEquals(checkPrimaryAmount(candidate,
+    'Available balance EGP 250.00. Purchase EGP 250.00 at CARREFOUR.'), null);
+});
+
+Deno.test('transient provider failures make at most three paid attempts', async () => {
+  let calls = 0;
+  const reply = await runPrimaryAi({
+    key: 'test', model: 'gemini-3.8-flash', prompt: qnb,
+    beforeAttempt: () => Promise.resolve(true),
+    validate: () => null, sleep: () => Promise.resolve(),
+    fetcher: () => { calls++; return Promise.resolve(new Response('', { status: 503 })); },
+  });
+  assertEquals(reply, { ok: false, reason: 'unavailable', attempts: 3 });
+  assertEquals(calls, 3);
+});
+
+Deno.test('a permanent provider rejection is not retried', async () => {
+  let calls = 0;
+  const reply = await runPrimaryAi({
+    key: 'test', model: 'gemini-3.8-flash', prompt: qnb,
+    beforeAttempt: () => Promise.resolve(true),
+    validate: () => null, sleep: () => Promise.resolve(),
+    fetcher: () => { calls++; return Promise.resolve(new Response('', { status: 400 })); },
+  });
+  assertEquals(reply, { ok: false, reason: 'unavailable', attempts: 1 });
+  assertEquals(calls, 1);
+});
